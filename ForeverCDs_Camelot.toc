@@ -1,0 +1,17 @@
+## Interface: 16001
+## Title: ForeverCDs
+## Notes: Shows when your group's cooldowns are ready, starting with Innervate. Tracks every member who can cast them, whatever their spec. Only you need it installed.
+## Author: 42nd Design
+## Version: @project-version@
+## IconTexture: 136048
+## SavedVariables: ForeverCDsDB
+## X-License: MIT
+## X-Website: https://github.com/42ndDesign/ForeverCDs
+
+Util.lua
+Spells.lua
+Tracker.lua
+Sync.lua
+UI.lua
+Frames.lua
+Config.lua

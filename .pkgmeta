@@ -1,0 +1,12 @@
+package-as: ForeverCDs
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+ignore:
+  - docs
+  - tests
+  - README.md
+  - .github
+  - .gitignore

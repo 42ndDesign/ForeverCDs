@@ -1,0 +1,19 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.1.5"
+      - name: Syntax check every Lua file
+        run: for f in *.lua tests/*.lua; do luac -p "$f" || exit 1; done
+      - name: Unit tests (Tracker, Spells, Sync)
+        run: lua tests/run.lua
