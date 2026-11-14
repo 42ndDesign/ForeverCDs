@@ -325,6 +325,17 @@ test("records kept 30 minutes after leaving", function()
   eq(ns.cds[DRU.guid], nil, "purged")
 end)
 
+test("panel order and cooldown source", function()
+  freshDB()
+  ns.db.spells.zzcustom = { key = "zzcustom", name = "Aaa Custom", class = "MAGE", ids = { 1 }, cd = 10 }
+  local list = Spells.Sorted(ns.db.spells)
+  eq(list[1].key, "innervate"); eq(list[#list].key, "zzcustom")
+  eq(Spells.CooldownSource(ns.db.spells.innervate), "preset")
+  ns.db.spells.innervate.cdOverride = 100
+  eq(Spells.CooldownSource(ns.db.spells.innervate), "override")
+  eq(ns.db.spells.powerinfusion.talent, true)
+end)
+
 test("time text", function()
   eq(ns.TimeText(125), "2:05")
   eq(ns.TimeText(59.2), "60")

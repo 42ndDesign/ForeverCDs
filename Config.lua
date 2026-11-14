@@ -356,7 +356,7 @@ local function onSlash(msg)
   local cmd, rest = msg:match("^(%S*)%s*(.*)$")
   cmd = (cmd or ""):lower()
   if cmd == "" then
-    if not ns.OpenPanel() then printHelp() end
+    if not (ns.OpenPanel and ns.OpenPanel()) then printHelp() end
   elseif cmd == "help" then printHelp()
   elseif cmd == "add" then cmdAdd(rest)
   elseif cmd == "remove" then cmdRemove(rest)
@@ -407,215 +407,9 @@ SLASH_FOREVERCDS1 = "/fcds"
 SLASH_FOREVERCDS2 = "/forevercds"
 SlashCmdList.FOREVERCDS = onSlash
 
----------------------------------------------------------------------------
--- Options panel (Esc > Options > AddOns > ForeverCDs)
----------------------------------------------------------------------------
-local panel, category
-local widgets = {}
-
-local function tip(frame, text)
-  if not text then return end
-  frame:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:AddLine(text, 1, 1, 1, true); GameTooltip:Show()
-  end)
-  frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
-end
-
-local function makeCheck(parent, label, onClick)
-  local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-  cb:SetSize(24, 24)
-  cb.label = cb:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  cb.label:SetPoint("LEFT", cb, "RIGHT", 4, 0)
-  cb.label:SetText(label)
-  cb:SetScript("OnClick", function(self) onClick(self:GetChecked() and true or false) end)
-  return cb
-end
-
-local function makeButton(parent, text, w, onClick)
-  local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-  b:SetSize(w, 22)
-  b:SetText(text)
-  b:SetScript("OnClick", onClick)
-  return b
-end
-
--- One row per option: checkbox, -/+ stepper, or a cycling button.
-local function makeOptionRow(parent, o)
-  local row = CreateFrame("Frame", nil, parent)
-  row:SetSize(420, 26)
-  if o.kind == "bool" then
-    row.cb = makeCheck(row, o.label, function(v) setOpt(o, v) end)
-    row.cb:SetPoint("LEFT", 0, 0)
-    row.Update = function() row.cb:SetChecked(getOpt(o) and true or false) end
-  else
-    row.label = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    row.label:SetPoint("LEFT", 4, 0)
-    row.label:SetText(o.label)
-    if o.kind == "number" then
-      local function step(d)
-        local v = (getOpt(o) or 0) + d * o.step
-        v = math.floor(v / o.step + 0.5) * o.step
-        setOpt(o, math.max(o.min, math.min(o.max, v)))
-      end
-      row.plus = makeButton(row, "+", 24, function() step(IsShiftKeyDown() and 10 or 1) end)
-      row.plus:SetPoint("RIGHT", 0, 0)
-      row.value = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-      row.value:SetWidth(50)
-      row.value:SetPoint("RIGHT", row.plus, "LEFT", -4, 0)
-      row.minus = makeButton(row, "-", 24, function() step(IsShiftKeyDown() and -10 or -1) end)
-      row.minus:SetPoint("RIGHT", row.value, "LEFT", -4, 0)
-      tip(row.plus, "Shift-click for bigger steps.")
-      row.Update = function()
-        local v = getOpt(o) or 0
-        row.value:SetText(o.step < 1 and string.format("%.1f", v) or tostring(v))
-      end
-    else
-      row.btn = makeButton(row, "", 120, function()
-        local cur, idx = getOpt(o), 1
-        for i, c in ipairs(o.choices) do if c == cur then idx = i end end
-        local d = IsShiftKeyDown() and -1 or 1
-        setOpt(o, o.choices[((idx - 1 + d) % #o.choices) + 1])
-      end)
-      row.btn:SetPoint("RIGHT", 0, 0)
-      tip(row.btn, "Click to cycle, shift-click to go back.")
-      row.Update = function() row.btn:SetText(tostring(getOpt(o))) end
-    end
-  end
-  return row
-end
-
-local function buildPanel()
-  if panel.built then return end
-  panel.built = true
-  local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-  title:SetPoint("TOPLEFT", 16, -16)
-  title:SetText("ForeverCDs")
-  local sub = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-  sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-  sub:SetPoint("RIGHT", panel, "RIGHT", -16, 0)
-  sub:SetJustifyH("LEFT")
-  sub:SetText("Group cooldown tracker. Only you need the addon. Every option here also works as "
-    .. "a slash command: /fcds options lists them.")
-
-  local scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-  scroll:SetPoint("TOPLEFT", sub, "BOTTOMLEFT", -4, -8)
-  scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -30, 12)
-  local content = CreateFrame("Frame", nil, scroll)
-  content:SetSize(440, 1)
-  scroll:SetScrollChild(content)
-  panel.content = content
-
-  local y = 0
-  local function place(f, h, indent)
-    f:SetPoint("TOPLEFT", content, "TOPLEFT", indent or 0, -y)
-    y = y + (h or 26)
-  end
-  local function heading(text)
-    y = y + 8
-    local h = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    place(h, 20, 4)
-    h:SetText(text)
-  end
-
-  heading("Tracked spells")
-  panel.spellRows = {}
-  panel.spellAnchorY = y
-  y = y + 26 * 12
-  panel.spellBottom = y
-
-  local groups = {
-    { "Window", { "lock", "scale", "width", "rowheight", "style", "grow", "solo", "partyshow", "raid", "self" } },
-    { "Party frames", { "partymode", "point", "relpoint", "x", "y", "size", "spacing", "stripgrow", "timertext", "selfstrip" } },
-    { "Alerts and sync", { "readyalert", "readysound", "castalert", "sync" } },
-  }
-  for _, g in ipairs(groups) do
-    heading(g[1])
-    for _, name in ipairs(g[2]) do
-      local row = makeOptionRow(content, findOpt(name))
-      place(row, 26)
-      widgets[#widgets + 1] = row
-    end
-    if g[1] == "Party frames" then
-      local lbl = content:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-      place(lbl, 18, 4)
-      lbl:SetText("Custom frame name pattern (blank = auto-detect):")
-      local eb = CreateFrame("EditBox", nil, content, "InputBoxTemplate")
-      eb:SetSize(300, 22)
-      eb:SetAutoFocus(false)
-      place(eb, 28, 8)
-      eb:SetScript("OnEnterPressed", function(self)
-        local t = self:GetText()
-        onSlash("frames " .. ((t == "" and "clear") or t))
-        self:ClearFocus()
-      end)
-      eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-      tip(eb, "e.g. ElvUF_PartyGroup1UnitButton%d. Press Enter to apply.")
-      panel.pattern = eb
-    end
-  end
-  heading("Tools")
-  local testBtn = makeButton(content, "Test mode", 110, function() UI.SetTest(not UI.test) end)
-  place(testBtn, 26, 4)
-  local resetBtn = makeButton(content, "Reset options", 110, function() cmdReset() end)
-  resetBtn:SetPoint("LEFT", testBtn, "RIGHT", 8, 0)
-  local dbg = makeCheck(content, "Debug: log every group cast", function(v) ns.debug = v end)
-  place(dbg, 26)
-  panel.debug = dbg
-  content:SetHeight(y + 20)
-end
-
-function ns.RefreshPanel()
-  if not panel or not panel.built or not panel:IsVisible() then return end
-  for _, w in ipairs(widgets) do w.Update() end
-  panel.pattern:SetText(ns.db.party.framePattern or "")
-  panel.debug:SetChecked(ns.debug)
-  local keys = {}
-  for k in pairs(ns.db.spells) do keys[#keys + 1] = k end
-  table.sort(keys, function(a, b) return (ns.db.spells[a].name or a) < (ns.db.spells[b].name or b) end)
-  for _, r in ipairs(panel.spellRows) do r:Hide() end
-  for i, k in ipairs(keys) do
-    if i > 12 then break end
-    local s = ns.db.spells[k]
-    local r = panel.spellRows[i]
-    if not r then
-      r = makeCheck(panel.content, "", function() end)
-      r.icon = r:CreateTexture(nil, "ARTWORK")
-      r.icon:SetSize(18, 18)
-      r.icon:SetPoint("LEFT", r, "RIGHT", 4, 0)
-      r.label:ClearAllPoints()
-      r.label:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
-      r:SetPoint("TOPLEFT", panel.content, "TOPLEFT", 0, -(panel.spellAnchorY + (i - 1) * 26))
-      panel.spellRows[i] = r
-    end
-    r.icon:SetTexture(Spells.IconOf(s))
-    r.label:SetText(("%s  |cff999999%s, %s|r"):format(s.name, s.class or "?", ns.TimeText(Spells.Cooldown(s))))
-    r:SetChecked(s.enabled and true or false)
-    r:SetScript("OnClick", function(self) s.enabled = self:GetChecked() and true or false; applyFrames() end)
-    r:Show()
-  end
-end
-
-local function registerPanel()
-  panel = CreateFrame("Frame")
-  panel.name = "ForeverCDs"
-  panel:SetScript("OnShow", function() buildPanel(); ns.RefreshPanel() end)
-  if Settings and Settings.RegisterCanvasLayoutCategory then
-    category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
-    Settings.RegisterAddOnCategory(category)
-  elseif InterfaceOptions_AddCategory then
-    InterfaceOptions_AddCategory(panel)
-  end
-end
-
-function ns.OpenPanel()
-  if category and Settings and Settings.OpenToCategory then
-    return ns.safe(Settings.OpenToCategory, category:GetID()) ~= false
-  elseif panel and InterfaceOptionsFrame_OpenToCategory then
-    InterfaceOptionsFrame_OpenToCategory(panel)
-    return true
-  end
-  return false
-end
+-- Shared with Options.lua.
+ns.getOpt, ns.setOpt, ns.findOpt, ns.setFromText = getOpt, setOpt, findOpt, setFromText
+ns.Slash, ns.ResetOptions, ns.ApplyFrames = onSlash, cmdReset, applyFrames
 
 ---------------------------------------------------------------------------
 -- Events
@@ -675,7 +469,7 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
     if not ns.db then ns.InitDB() end
     T.onCast = UI.OnCast
     T.onOwnCast = function(spell, duration) S.Send(spell.key, duration) end
-    registerPanel()
+    if ns.RegisterPanel then ns.RegisterPanel() end
     T.RebuildRoster()
     T.Restore(ns.db)
     started = true

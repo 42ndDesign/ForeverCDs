@@ -10,13 +10,24 @@ Spells.presets = {
   innervate          = { name = "Innervate",              class = "DRUID",   ids = { 29166 },                                   cd = 360,  minLevel = 40, enabled = true },
   rebirth            = { name = "Rebirth",                class = "DRUID",   ids = { 20484, 20739, 20742, 20747, 20748 },       cd = 1800, minLevel = 20 },
   tranquility        = { name = "Tranquility",            class = "DRUID",   ids = { 740, 8918, 9862, 9863 },                   cd = 300,  minLevel = 30 },
-  manatidetotem      = { name = "Mana Tide Totem",        class = "SHAMAN",  ids = { 16190, 17354, 17359 },                     cd = 300,  minLevel = 40 },
+  manatidetotem      = { name = "Mana Tide Totem",        class = "SHAMAN",  ids = { 16190, 17354, 17359 },                     cd = 300,  minLevel = 40, talent = true },
   blessingofprotection = { name = "Blessing of Protection", class = "PALADIN", ids = { 1022, 5599, 10278 },                   cd = 300,  minLevel = 10 },
   layonhands         = { name = "Lay on Hands",           class = "PALADIN", ids = { 633, 2800, 10310 },                        cd = 3600, minLevel = 10 },
   divineintervention = { name = "Divine Intervention",    class = "PALADIN", ids = { 19752 },                                   cd = 3600, minLevel = 30 },
   fearward           = { name = "Fear Ward",              class = "PRIEST",  ids = { 6346 },                                    cd = 30,   minLevel = 20 },
-  powerinfusion      = { name = "Power Infusion",         class = "PRIEST",  ids = { 10060 },                                   cd = 180,  minLevel = 40 },
+  powerinfusion      = { name = "Power Infusion",         class = "PRIEST",  ids = { 10060 },                                   cd = 180,  minLevel = 40, talent = true },
   soulstoneresurrection = { name = "Soulstone Resurrection", class = "WARLOCK", ids = { 20707, 20762, 20763, 20764, 20765 },   cd = 1800, minLevel = 18 },
+}
+
+-- Display order in the options panel; custom spells follow, by name.
+Spells.ORDER = {
+  "innervate", "rebirth", "tranquility", "manatidetotem", "blessingofprotection",
+  "layonhands", "divineintervention", "fearward", "powerinfusion", "soulstoneresurrection",
+}
+
+Spells.CLASS_NAMES = {
+  DRUID = "Druid", PALADIN = "Paladin", PRIEST = "Priest", SHAMAN = "Shaman", WARLOCK = "Warlock",
+  MAGE = "Mage", WARRIOR = "Warrior", ROGUE = "Rogue", HUNTER = "Hunter",
 }
 
 Spells.CLASSES = {
@@ -157,6 +168,34 @@ function Spells.PresetFor(id, name)
     if name and ns.KeyFor(name) == key then return key, p end
   end
   return nil
+end
+
+-- Where Cooldown(spell) gets its value: "override" | "base" | "preset" | "unknown".
+function Spells.CooldownSource(spell)
+  if type(spell.cdOverride) == "number" and spell.cdOverride > 0 then return "override" end
+  if GetSpellBaseCooldown and spell.ids then
+    for _, id in ipairs(spell.ids) do
+      local ms = ns.plain(ns.safe(GetSpellBaseCooldown, id), "number")
+      if ms and ms > 0 then return "base" end
+    end
+  end
+  if type(spell.cd) == "number" and spell.cd > 0 then return "preset" end
+  return "unknown"
+end
+
+-- Spells in panel order.
+function Spells.Sorted(spells)
+  local list, seen = {}, {}
+  for _, key in ipairs(Spells.ORDER) do
+    if type(spells[key]) == "table" then list[#list + 1] = spells[key]; seen[key] = true end
+  end
+  local rest = {}
+  for key, s in pairs(spells) do
+    if type(s) == "table" and not seen[key] then rest[#rest + 1] = s end
+  end
+  table.sort(rest, function(a, b) return (a.name or a.key) < (b.name or b.key) end)
+  for _, s in ipairs(rest) do list[#list + 1] = s end
+  return list
 end
 
 -- Cooldown length in seconds: user override, else client base cooldown, else preset, else 0.

@@ -353,6 +353,7 @@ function UI.SetTest(on)
   UI.ApplyLock()
   if ns.Frames then ns.Frames.Update() end
   UI.Refresh()
+  if ns.RefreshPanel then ns.RefreshPanel() end
   ns.Print(UI.test and "Test mode on: simulated members. /fcds test again to stop." or "Test mode off.")
 end
 

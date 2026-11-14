@@ -34,7 +34,10 @@ F.KNOWN_PATTERNS = {
   "CellPartyFrameMember%d",
   "Grid2LayoutHeader1UnitButton%d",
 }
+F.KNOWN_LABELS = { "ForeverUnitFrames", "ElvUI", "Shadowed Unit Frames", "Cell", "Grid2" }
 F.KNOWN_PLAYER = { "ElvUF_Player", "SUFUnitplayer" }
+F.KNOWN_PLAYER_LABELS = { "ElvUI", "Shadowed Unit Frames" }
+F.source = {}       -- [guid] = label of where its frame was found
 
 local POINTS = {
   TOPLEFT = true, TOP = true, TOPRIGHT = true, LEFT = true, CENTER = true,
@@ -147,37 +150,38 @@ local function genericScan(units)
   for unit, frame in pairs(found) do F.scanCache[unit] = frame end
 end
 
+-- Returns the unit frame and a label saying where it was found (for the options panel).
 function F.FindFrame(unit)
   local P = ns.db.party
   local f = fromPattern(P.framePattern, unit)
-  if f then return f end
-  for _, pat in ipairs(F.KNOWN_PATTERNS) do
+  if f then return f, "Custom pattern" end
+  for i, pat in ipairs(F.KNOWN_PATTERNS) do
     f = fromPattern(pat, unit)
-    if f then return f end
+    if f then return f, F.KNOWN_LABELS[i] end
   end
   if unit == "player" then
-    for _, name in ipairs(F.KNOWN_PLAYER) do
-      if matches(_G[name], unit) then return _G[name] end
+    for i, name in ipairs(F.KNOWN_PLAYER) do
+      if matches(_G[name], unit) then return _G[name], F.KNOWN_PLAYER_LABELS[i] end
     end
   end
   for i = 1, 5 do
     f = _G["CompactPartyFrameMember" .. i]
-    if f and matches(f, unit) then return f end
+    if f and matches(f, unit) then return f, "Blizzard raid-style frames" end
   end
   local pf = _G.PartyFrame
   if type(pf) == "table" then
     for i = 1, 4 do
       f = ns.field(pf, "MemberFrame" .. i)
-      if f and matches(f, unit) then return f end
+      if f and matches(f, unit) then return f, "Blizzard party frames" end
     end
   end
   for i = 1, 4 do
     f = _G["PartyMemberFrame" .. i]
-    if f and matches(f, unit) then return f end
+    if f and matches(f, unit) then return f, "Blizzard party frames" end
   end
-  if unit == "player" and matches(_G.PlayerFrame, "player") then return _G.PlayerFrame end
+  if unit == "player" and matches(_G.PlayerFrame, "player") then return _G.PlayerFrame, "Blizzard player frame" end
   f = F.scanCache[unit]
-  if f and matches(f, unit) then return f end
+  if f and matches(f, unit) then return f, "Found by frame scan" end
   F.scanCache[unit] = nil
   return nil
 end
@@ -286,14 +290,15 @@ function F.Update()
   if not F.Active() then hideAll(); return end
   if ns.UI.test then F.UpdateTest(); return end
   local now = ns.Now()
-  F.attached, F.missing = {}, {}
+  F.attached, F.missing, F.source = {}, {}, {}
   local used = {}
   local needScan = {}
   for guid, m in pairs(ns.roster) do
     if not F.Skipped(guid) then
       local entries = memberEntries(guid, now)
       if #entries > 0 then
-        local unitFrame = F.FindFrame(m.unit)
+        local unitFrame, src = F.FindFrame(m.unit)
+        F.source[guid] = src
         if unitFrame then
           local strip = getStrip(guid)
           if anchor(strip, unitFrame) then

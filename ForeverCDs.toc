@@ -15,3 +15,4 @@ Sync.lua
 UI.lua
 Frames.lua
 Config.lua
+Options.lua
