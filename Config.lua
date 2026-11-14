@@ -257,6 +257,100 @@ local function cmdAlert(rest)
   if next(players) then ns.Print("Alerts limited to: " .. names) else ns.Print("Alerts for everyone.") end
 end
 
+---------------------------------------------------------------------------
+-- /fcds inspect: probe which talent APIs return readable data for another
+-- player on this client. Diagnostic only; nothing uses the result yet.
+---------------------------------------------------------------------------
+local probe = nil   -- { unit, guid, t }
+
+local function v2s(v)
+  if v == nil then return "nil" end
+  if ns.isSecret(v) then return "<secret>" end
+  return tostring(v)
+end
+
+local function runProbe(unit)
+  local P = ns.Print
+  P(("Inspect probe for %s (%s):"):format(v2s(ns.safe(UnitName, unit)), unit))
+
+  -- 1. Classic ranks: GetTalentInfo(tab, index, isInspect)
+  local tabs = ns.safe(GetNumTalentTabs, true)
+  P(("[classic] GetNumTalentTabs(inspect) = %s"):format(v2s(tabs)))
+  local picked, secret = {}, 0
+  if ns.plain(tabs, "number") then
+    for tab = 1, tabs do
+      local a, b, c, d, e = ns.safe(GetTalentTabInfo, tab, true)
+      P(("[classic] tab %d info: %s | %s | %s | %s | %s"):format(tab, v2s(a), v2s(b), v2s(c), v2s(d), v2s(e)))
+      local n = ns.plain(ns.safe(GetNumTalents, tab, true), "number") or 0
+      for i = 1, n do
+        local name, _, _, _, rank = ns.safe(GetTalentInfo, tab, i, true)
+        if ns.isSecret(name) or ns.isSecret(rank) then secret = secret + 1
+        elseif type(rank) == "number" and rank > 0 then picked[#picked + 1] = ("%s %d"):format(tostring(name), rank) end
+      end
+    end
+    P(("[classic] talents with points: %d, secret: %d"):format(#picked, secret))
+    if #picked > 0 then P("  " .. table.concat(picked, ", ", 1, math.min(#picked, 25))) end
+  end
+
+  -- 2. Talent tiers: C_SpecializationInfo.GetTalentInfo{ tier, column, isInspect = true }
+  if C_SpecializationInfo and C_SpecializationInfo.GetTalentInfo then
+    local sel = {}
+    for tier = 1, 7 do
+      for col = 1, 3 do
+        local info = ns.safe(C_SpecializationInfo.GetTalentInfo, { tier = tier, column = col, isInspect = true, target = unit })
+        if type(info) == "table" and not ns.isSecret(info) then
+          local s = ns.field(info, "selected")
+          if s == true then sel[#sel + 1] = v2s(ns.field(info, "name")) end
+        end
+      end
+    end
+    P(("[tiers] selected: %s"):format(#sel > 0 and table.concat(sel, ", ") or "none readable"))
+  else
+    P("[tiers] C_SpecializationInfo.GetTalentInfo missing")
+  end
+
+  -- 3. Trait trees
+  local cid = Constants and Constants.TraitConsts and Constants.TraitConsts.INSPECT_TRAIT_CONFIG_ID
+  if cid and C_Traits and C_Traits.GetConfigInfo then
+    local cfg = ns.safe(C_Traits.GetConfigInfo, cid)
+    local trees = type(cfg) == "table" and ns.field(cfg, "treeIDs")
+    P(("[traits] inspect config: %s, trees: %s"):format(v2s(cfg and "found" or nil), v2s(trees and #trees)))
+  else
+    P("[traits] no inspect trait config on this client")
+  end
+
+  P(("[spec] GetInspectSpecialization = %s"):format(v2s(ns.safe(GetInspectSpecialization, unit))))
+  ns.safe(ClearInspectPlayer)
+end
+
+local function cmdInspect(rest)
+  local unit = (rest ~= "" and rest:lower()) or "target"
+  if not ns.plain(ns.safe(UnitIsPlayer, unit), "boolean") then
+    return ns.Print("Target a player (or /fcds inspect party1) first.")
+  end
+  local can = ns.safe(CanInspect, unit)
+  ns.Print(("CanInspect(%s) = %s, in combat: %s"):format(unit, v2s(can), v2s(ns.safe(InCombatLockdown))))
+  if not NotifyInspect then return ns.Print("NotifyInspect does not exist on this client.") end
+  probe = { unit = unit, guid = ns.UnitGUIDSafe(unit), t = ns.Now() }
+  ns.safe(NotifyInspect, unit)
+  ns.Print("Inspect requested, waiting for INSPECT_READY (stay within about 28 yards)...")
+  C_Timer.After(5, function()
+    if probe and ns.Now() - probe.t >= 4.9 then
+      ns.Print("No INSPECT_READY after 5 s. Reading anyway:")
+      local u = probe.unit; probe = nil
+      runProbe(u)
+    end
+  end)
+end
+
+function ns.OnInspectReady(guid)
+  if not probe then return end
+  if probe.guid and not ns.isSecret(guid) and guid ~= probe.guid then return end
+  ns.Print(("INSPECT_READY after %.1f s (guid %s)"):format(ns.Now() - probe.t, v2s(guid)))
+  local u = probe.unit; probe = nil
+  runProbe(u)
+end
+
 local function onSlash(msg)
   msg = (msg or ""):gsub("^%s+", ""):gsub("%s+$", "")
   local cmd, rest = msg:match("^(%S*)%s*(.*)$")
@@ -305,6 +399,7 @@ local function onSlash(msg)
       ns.Print(("%s = %s  (%s) - %s"):format(o.name, fmt(getOpt(o)), hint, o.label))
     end
   elseif cmd == "alert" then cmdAlert(rest)
+  elseif cmd == "inspect" then cmdInspect(rest)
   else printHelp() end
 end
 
@@ -537,7 +632,7 @@ for _, e in ipairs({
   "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_LOGOUT", "PLAYER_ENTERING_WORLD",
   "GROUP_ROSTER_UPDATE", "UNIT_CONNECTION", "UNIT_LEVEL", "UNIT_SPELLCAST_SUCCEEDED",
   "UNIT_AURA", "SPELL_UPDATE_COOLDOWN", "CHAT_MSG_ADDON", "PLAYER_REGEN_ENABLED",
-  "EDIT_MODE_LAYOUTS_UPDATED",
+  "EDIT_MODE_LAYOUTS_UPDATED", "INSPECT_READY",
 }) do tryRegister(e) end
 
 -- UNIT_AURA can be busy in a raid: batch dirty units and scan 0.2 s later.
@@ -587,6 +682,8 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
     UI.Start()
     UI.UpdateMode()
     queueSelf()
+  elseif event == "INSPECT_READY" then
+    ns.OnInspectReady(a1)
   elseif event == "PLAYER_LOGOUT" then
     if ns.db then T.Save(ns.db) end
   elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD"
