@@ -321,14 +321,61 @@ local function runProbe(unit, self)
     P("[tiers] C_SpecializationInfo.GetTalentInfo missing")
   end
 
-  -- 3. Trait trees
-  local cid = Constants and Constants.TraitConsts and Constants.TraitConsts.INSPECT_TRAIT_CONFIG_ID
+  -- 3. Trait trees (Forever uses these). Walk every node with purchased ranks.
+  local cid
+  if self then
+    cid = C_ClassTalents and ns.plain(ns.safe(C_ClassTalents.GetActiveConfigID), "number")
+  else
+    cid = Constants and Constants.TraitConsts and Constants.TraitConsts.INSPECT_TRAIT_CONFIG_ID
+  end
   if cid and C_Traits and C_Traits.GetConfigInfo then
     local cfg = ns.safe(C_Traits.GetConfigInfo, cid)
-    local trees = type(cfg) == "table" and ns.field(cfg, "treeIDs")
-    P(("[traits] inspect config: %s, trees: %s"):format(v2s(cfg and "found" or nil), v2s(trees and #trees)))
+    local trees = ns.field(cfg, "treeIDs", "table")
+    P(("[traits] config %s: %s, trees: %s"):format(v2s(cid), v2s(cfg and "found" or nil), v2s(trees and #trees)))
+    local tracked = {}
+    for _, key in ipairs(ns.Spells.ORDER) do
+      local sp = ns.Spells.presets[key]
+      for _, id in ipairs(sp.ids) do tracked[id] = sp.name end
+    end
+    for _, treeID in ipairs(trees or {}) do
+      local nodes = ns.safe(C_Traits.GetTreeNodes, treeID)
+      local total, bought, secret, list, hits = 0, 0, 0, {}, {}
+      if type(nodes) == "table" and not ns.isSecret(nodes) then
+        for _, nodeID in ipairs(nodes) do
+          total = total + 1
+          local info = ns.safe(C_Traits.GetNodeInfo, cid, nodeID)
+          if info == nil or ns.isSecret(info) then secret = secret + 1 else
+            local ranks = ns.field(info, "ranksPurchased", "number") or ns.field(info, "currentRank", "number") or 0
+            local active = ns.field(info, "activeEntry", "table")
+            local entryID = active and ns.field(active, "entryID", "number")
+            if ranks > 0 and entryID then
+              bought = bought + 1
+              local e = ns.safe(C_Traits.GetEntryInfo, cid, entryID)
+              local defID = ns.field(e, "definitionID", "number")
+              local d = defID and ns.safe(C_Traits.GetDefinitionInfo, defID)
+              local sid = ns.field(d, "spellID", "number") or ns.field(d, "overriddenSpellID", "number")
+              local name = ns.field(d, "overrideName", "string") or (sid and ns.Spells.NameOf(sid))
+              list[#list + 1] = ("%s(%s)%s"):format(v2s(name), v2s(sid), ranks > 1 and ("x" .. ranks) or "")
+              if sid and tracked[sid] then hits[#hits + 1] = tracked[sid] .. " by id" end
+              if name then
+                for _, key in ipairs(ns.Spells.ORDER) do
+                  if ns.Spells.presets[key].name == name then hits[#hits + 1] = name .. " by name" end
+                end
+              end
+            end
+          end
+        end
+      else
+        P(("[traits] tree %s: GetTreeNodes returned %s"):format(v2s(treeID), v2s(nodes)))
+      end
+      P(("[traits] tree %s: nodes %d, purchased %d, unreadable %d"):format(v2s(treeID), total, bought, secret))
+      for i = 1, #list, 6 do
+        P("  " .. table.concat(list, ", ", i, math.min(i + 5, #list)))
+      end
+      P(("[traits] tracked talents found: %s"):format(#hits > 0 and table.concat(hits, ", ") or "none"))
+    end
   else
-    P("[traits] no inspect trait config on this client")
+    P(("[traits] no trait config (id %s, C_Traits %s)"):format(v2s(cid), v2s(C_Traits and "yes" or nil)))
   end
 
   if self then
@@ -354,10 +401,13 @@ local function runProbe(unit, self)
       end
     end
     local spec = GetSpecialization and ns.safe(GetSpecialization)
-    P(("[spec] GetSpecialization = %s"):format(v2s(spec)))
+    local sid, sname = ns.safe(GetSpecializationInfo, ns.plain(spec, "number") or 0)
+    P(("[spec] GetSpecialization = %s (id %s, %s)"):format(v2s(spec), v2s(sid), v2s(sname)))
     return
   end
-  P(("[spec] GetInspectSpecialization = %s"):format(v2s(ns.safe(GetInspectSpecialization, unit))))
+  local specID = ns.safe(GetInspectSpecialization, unit)
+  local _, sname, _, _, role, cls = ns.safe(GetSpecializationInfoByID, ns.plain(specID, "number") or 0)
+  P(("[spec] GetInspectSpecialization = %s (%s, %s, %s)"):format(v2s(specID), v2s(sname), v2s(role), v2s(cls)))
   ns.safe(ClearInspectPlayer)
 end
 
