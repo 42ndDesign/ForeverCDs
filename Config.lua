@@ -269,21 +269,22 @@ local function v2s(v)
   return tostring(v)
 end
 
-local function runProbe(unit)
+local function runProbe(unit, self)
   local P = ns.Print
-  P(("Inspect probe for %s (%s):"):format(v2s(ns.safe(UnitName, unit)), unit))
+  local insp = not self
+  P(("%s probe for %s (%s):"):format(self and "Self talent" or "Inspect", v2s(ns.safe(UnitName, unit)), unit))
 
   -- 1. Classic ranks: GetTalentInfo(tab, index, isInspect)
-  local tabs = ns.safe(GetNumTalentTabs, true)
-  P(("[classic] GetNumTalentTabs(inspect) = %s"):format(v2s(tabs)))
+  local tabs = ns.safe(GetNumTalentTabs, insp)
+  P(("[classic] GetNumTalentTabs(%s) = %s"):format(insp and "inspect" or "own", v2s(tabs)))
   local picked, secret = {}, 0
   if ns.plain(tabs, "number") then
     for tab = 1, tabs do
-      local a, b, c, d, e = ns.safe(GetTalentTabInfo, tab, true)
+      local a, b, c, d, e = ns.safe(GetTalentTabInfo, tab, insp)
       P(("[classic] tab %d info: %s | %s | %s | %s | %s"):format(tab, v2s(a), v2s(b), v2s(c), v2s(d), v2s(e)))
-      local n = ns.plain(ns.safe(GetNumTalents, tab, true), "number") or 0
+      local n = ns.plain(ns.safe(GetNumTalents, tab, insp), "number") or 0
       for i = 1, n do
-        local name, _, _, _, rank = ns.safe(GetTalentInfo, tab, i, true)
+        local name, _, _, _, rank = ns.safe(GetTalentInfo, tab, i, insp)
         if ns.isSecret(name) or ns.isSecret(rank) then secret = secret + 1
         elseif type(rank) == "number" and rank > 0 then picked[#picked + 1] = ("%s %d"):format(tostring(name), rank) end
       end
@@ -297,7 +298,7 @@ local function runProbe(unit)
     local sel = {}
     for tier = 1, 7 do
       for col = 1, 3 do
-        local info = ns.safe(C_SpecializationInfo.GetTalentInfo, { tier = tier, column = col, isInspect = true, target = unit })
+        local info = ns.safe(C_SpecializationInfo.GetTalentInfo, { tier = tier, column = col, isInspect = insp, target = insp and unit or nil })
         if type(info) == "table" and not ns.isSecret(info) then
           local s = ns.field(info, "selected")
           if s == true then sel[#sel + 1] = v2s(ns.field(info, "name")) end
@@ -319,12 +320,42 @@ local function runProbe(unit)
     P("[traits] no inspect trait config on this client")
   end
 
+  if self then
+    -- 4. Own spellbook: how the addon would detect the player's own talent spells.
+    for _, key in ipairs(ns.Spells.ORDER) do
+      local p = ns.Spells.presets[key]
+      if p and p.talent then
+        local id = p.ids[#p.ids]
+        local parts = {}
+        for _, fn in ipairs({ "IsPlayerSpell", "IsSpellKnown" }) do
+          if _G[fn] then
+            local any = false
+            for _, sid in ipairs(p.ids) do
+              local v = ns.safe(_G[fn], sid)
+              if ns.isSecret(v) then any = "<secret>"; break end
+              if v then any = true end
+            end
+            parts[#parts + 1] = ("%s=%s"):format(fn, tostring(any))
+          end
+        end
+        P(("[spellbook] %s (ids %s): %s, name on client: %s"):format(p.name,
+          table.concat(p.ids, "/"), table.concat(parts, " "), v2s(ns.Spells.NameOf(p.ids[1]))))
+      end
+    end
+    local spec = GetSpecialization and ns.safe(GetSpecialization)
+    P(("[spec] GetSpecialization = %s"):format(v2s(spec)))
+    return
+  end
   P(("[spec] GetInspectSpecialization = %s"):format(v2s(ns.safe(GetInspectSpecialization, unit))))
   ns.safe(ClearInspectPlayer)
 end
 
 local function cmdInspect(rest)
   local unit = (rest ~= "" and rest:lower()) or "target"
+  if unit == "me" or unit == "self" then unit = "player" end
+  if unit == "player" or ns.plain(ns.safe(UnitIsUnit, unit, "player"), "boolean") then
+    return runProbe("player", true)
+  end
   if not ns.plain(ns.safe(UnitIsPlayer, unit), "boolean") then
     return ns.Print("Target a player (or /fcds inspect party1) first.")
   end
