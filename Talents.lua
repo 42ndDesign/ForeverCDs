@@ -136,20 +136,47 @@ function TL.HasIn(entry, spell)
   return false
 end
 
+-- Our own spellbook: true / false, or nil when it can't be read. Talent spells
+-- are in the spellbook only when talented, so a readable "no" is a real no.
+function TL.OwnSpellbook(spell)
+  if not IsPlayerSpell and not IsSpellKnown then return nil end
+  local readable = false
+  local function known(id)
+    for _, fn in ipairs({ IsPlayerSpell or false, IsSpellKnown or false }) do
+      if fn then
+        local k = ns.plain(ns.safe(fn, id), "boolean")
+        if k then return true end
+        if k == false then readable = true end
+      end
+    end
+    return false
+  end
+  for _, id in ipairs(spell.ids or {}) do if known(id) then return true end end
+  -- Forever can give a talent its own spell ID; a spell name only resolves to an
+  -- ID when the spell is in your spellbook.
+  if C_Spell and C_Spell.GetSpellInfo then
+    -- The localized name first, then the saved (English) one.
+    for _, name in ipairs({ ns.Spells.MatchName(spell) or false, spell.name or false }) do
+      if name then
+        local id = ns.field(ns.safe(C_Spell.GetSpellInfo, name), "spellID", "number")
+        if id and known(id) then return true end
+      end
+    end
+  end
+  if readable then return false end
+  return nil
+end
+
 -- true / false / nil (unknown) for a talent spell; true for anything else.
 function TL.Has(guid, spell)
   if not spell.talent then return true end
   if not TL.Enabled() then return nil end
-  local c = cache()[guid]
-  local r = TL.HasIn(c, spell)
-  if r then return true end
-  -- Our own spellbook is authoritative when it says yes.
-  if guid == ns.Tracker.playerGUID and IsPlayerSpell then
-    for _, id in ipairs(spell.ids or {}) do
-      if ns.plain(ns.safe(IsPlayerSpell, id), "boolean") then return true end
-    end
+  if guid == ns.Tracker.playerGUID then
+    -- The inspect queue skips us, so the spellbook is the answer that stays current.
+    local own = TL.OwnSpellbook(spell)
+    if own ~= nil then return own end
   end
-  return r
+  return TL.HasIn(cache()[guid], spell)
 end
 
 -- Status text for tooltips and /fcds talents.
@@ -231,9 +258,22 @@ function TL.NextTarget(now, wall)
   return best
 end
 
+-- Our own trait read: retry while it is missing, partial, dirty or stale (the
+-- data is often not loaded yet at login). No inspect is needed for it.
+TL.SELF_RETRY = 30
+TL.selfTry = -100
+local function selfNeedsRead(now)
+  local me = ns.Tracker.playerGUID
+  if not me or now - TL.selfTry < TL.SELF_RETRY then return false end
+  local e = cache()[me]
+  return not e or not e.complete or e.dirty or (e.t or 0) == 0 or ns.Wall() - e.t > TL.STALE
+end
+
 function TL.Tick()
-  if not TL.Enabled() or not NotifyInspect then return end
+  if not TL.Enabled() then return end
   local now = ns.Now()
+  if selfNeedsRead(now) then TL.selfTry = now; TL.ReadSelf() end
+  if not NotifyInspect then return end
   if TL.pending then
     if now - TL.pending.t < TL.TIMEOUT then return end
     fail(TL.pending.guid, now)

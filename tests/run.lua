@@ -581,6 +581,50 @@ test("stale or dirty negatives become unknown", function()
   eq(TL.Has(SHB.guid, mt), nil, "stale")
 end)
 
+local MESHA = { guid = "Player-1-ME", name = "Me", class = "SHAMAN", level = 60, known = {} }
+
+test("own talent: the spellbook answers no, even over an old dirty entry", function()
+  talentDB()
+  party({ player = MESHA })
+  local mt = ns.db.spells.manatidetotem
+  -- Saved by an older version, then marked dirty at login.
+  TL.Cache()[MESHA.guid] = { t = wall - 10, names = {}, ids = {}, n = 16, dirty = true }
+  eq(TL.Has(MESHA.guid, mt), false)
+  eq(#T.Eligible(mt), 0)
+  wall = wall + TL.STALE + 1
+  eq(TL.Has(MESHA.guid, mt), false, "still no after 30 minutes")
+end)
+
+test("own talent: the spellbook answers yes, by rank or by name", function()
+  talentDB()
+  party({ player = MESHA })
+  local mt = ns.db.spells.manatidetotem
+  MESHA.known = { [17359] = true }
+  eq(TL.Has(MESHA.guid, mt), true, "a higher rank")
+  MESHA.known = { [1230001] = true }
+  C_Spell.GetSpellInfo = function(q) if q == "Mana Tide Totem" then return { spellID = 1230001 } end end
+  eq(TL.Has(MESHA.guid, mt), true, "Forever's own ID, found by name")
+  C_Spell.GetSpellInfo = nil
+  MESHA.known = {}
+end)
+
+test("own talent read is retried when it failed at login", function()
+  talentDB()
+  party({ player = MESHA })
+  local saved = IsPlayerSpell
+  IsPlayerSpell = nil   -- no spellbook answer: the trait read has to work
+  local cid
+  C_ClassTalents = { GetActiveConfigID = function() return cid end }
+  inspectTalents[MESHA.guid] = { { 17364, "Stormstrike" } }
+  inspected = MESHA.guid
+  eq(TL.ReadSelf(), false, "not loaded yet")
+  cid = 7
+  clock = clock + 31
+  TL.Tick()
+  eq(TL.Has(MESHA.guid, ns.db.spells.manatidetotem), false, "read on a later tick")
+  IsPlayerSpell, C_ClassTalents = saved, nil
+end)
+
 test("talent check off shows everyone", function()
   talentDB()
   party({ player = ME, party1 = SHB })
