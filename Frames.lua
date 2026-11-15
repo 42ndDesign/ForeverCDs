@@ -25,7 +25,11 @@ F.missing = {}      -- [guid] = true when eligible but no frame was found
 F.noticed = {}      -- [name] = true once the session notice was printed
 F.scanCache = {}    -- [unit] = frame found by the generic scan
 F.lastScan = -100
-F.SCAN_EVERY = 10   -- seconds between generic scans while frames are missing
+F.SCAN_EVERY = 10   -- seconds between generic scans while frames are missing,
+F.SCAN_MAX = 120    -- doubling after each scan that finds nothing, up to this
+F.scanMisses, F.scanKey = 0, nil
+F.NOTICE_AFTER = 6  -- seconds a member must stay unfound before the chat notice
+F.missingSince = {} -- [guid] = Now() when they were first not found
 
 F.KNOWN_PATTERNS = {
   "ForeverUnitFramesPartyUnitButton%d",
@@ -59,9 +63,10 @@ end
 
 function F.IsAttached(guid) return F.attached[guid] ~= nil end
 
--- The player's own strip is off: they are left out of frame mode entirely.
+-- The player's own strip is off, or "Include yourself" is off: they are left
+-- out of frame mode entirely.
 function F.Skipped(guid)
-  return guid == T.playerGUID and not ns.db.party.self
+  return guid == T.playerGUID and (not ns.db.party.self or ns.db.show.self == false)
 end
 
 ---------------------------------------------------------------------------
@@ -317,17 +322,29 @@ function F.Update()
   end
   for key, s in pairs(F.strips) do if not used[key] then s:Hide() end end
 
-  if #needScan > 0 and ns.Now() - F.lastScan >= F.SCAN_EVERY then
+  -- A different set of missing units starts the backoff over.
+  table.sort(needScan)
+  local key = table.concat(needScan, ",")
+  if key ~= F.scanKey then F.scanKey, F.scanMisses = key, 0 end
+  local wait = math.min(F.SCAN_EVERY * 2 ^ F.scanMisses, F.SCAN_MAX)
+  local inCombat = ns.plain(ns.safe(InCombatLockdown), "boolean")
+  if #needScan > 0 and not inCombat and ns.Now() - F.lastScan >= wait then
     F.lastScan = ns.Now()
     genericScan(needScan)
     local again = false
     for _, u in ipairs(needScan) do if F.scanCache[u] then again = true end end
     if again then F.lastScan = ns.Now(); return F.Update() end
+    F.scanMisses = F.scanMisses + 1
+  end
+  -- Frame addons create frames late: only speak up once the member stays unfound.
+  for guid in pairs(F.missingSince) do
+    if not F.missing[guid] then F.missingSince[guid] = nil end
   end
   for guid in pairs(F.missing) do
+    F.missingSince[guid] = F.missingSince[guid] or now
     local m = ns.roster[guid]
     local name = m and m.name or guid
-    if not F.noticed[name] then
+    if not F.noticed[name] and now - F.missingSince[guid] >= F.NOTICE_AFTER then
       F.noticed[name] = true
       ns.Print(("Couldn't find %s's party frame, showing them in the window. If you use a "
         .. "unit-frame addon, set its frame name with /fcds frames <pattern>, "
@@ -336,7 +353,8 @@ function F.Update()
   end
 end
 
--- Cheap per-tick update: refresh icon states, hide strips whose frame hid.
+-- Cheap per-tick update: refresh icon states, hide strips whose frame hid or
+-- now shows someone else (frame addons re-sort their buttons).
 function F.Refresh()
   if not ns.db or not F.Active() then return end
   if ns.UI.test then
@@ -349,7 +367,8 @@ function F.Refresh()
   local lost = false
   for guid, unitFrame in pairs(F.attached) do
     local strip = F.strips[guid]
-    if not visible(unitFrame) or not ns.roster[guid] then
+    local m = ns.roster[guid]
+    if not m or not matches(unitFrame, m.unit) then
       if strip then strip:Hide() end
       lost = true
     elseif strip then

@@ -129,33 +129,43 @@ function UI.Create()
   UI.ApplyLayout()
 end
 
+-- Saved offsets are in UIParent units (L.ui = true), so changing the window scale
+-- keeps its corner in place. GetLeft/GetTop and SetPoint offsets are in the
+-- window's own scaled units, hence the multiply and divide by its scale.
 function UI.SavePosition()
   local f, L = UI.frame, ns.db.layout
   local left = f:GetLeft()
   if not left then return end
+  local s = f:GetScale() or 1
   if L.grow == "up" then
-    L.point, L.x, L.y = "BOTTOMLEFT", left, f:GetBottom()
+    L.point, L.x, L.y = "BOTTOMLEFT", left * s, (f:GetBottom() or 0) * s
   else
-    L.point, L.x, L.y = "TOPLEFT", left, f:GetTop()
+    L.point, L.x, L.y = "TOPLEFT", left * s, (f:GetTop() or 0) * s
   end
+  L.ui = true
   UI.ApplyPosition()
 end
 
 function UI.ApplyPosition()
   local f, L = UI.frame, ns.db.layout
+  local s = f:GetScale() or 1
+  if not L.ui then
+    -- Saved by an older version in the window's own units: keep it where it is now.
+    L.x, L.y, L.ui = (L.x or 0) * s, (L.y or 0) * s, true
+  end
   f:ClearAllPoints()
   if L.point == "CENTER" or not L.point then
-    f:SetPoint(L.grow == "up" and "BOTTOM" or "TOP", UIParent, "CENTER", L.x or 0, L.y or 0)
+    f:SetPoint(L.grow == "up" and "BOTTOM" or "TOP", UIParent, "CENTER", (L.x or 0) / s, (L.y or 0) / s)
   else
     -- Keep the edge that does not grow fixed.
     local point = (L.grow == "up") and "BOTTOMLEFT" or "TOPLEFT"
     if point ~= L.point then
       -- Grow direction changed since saving: convert using the current size.
-      local h = f:GetHeight() or 0
+      local h = (f:GetHeight() or 0) * s
       L.y = (point == "TOPLEFT") and (L.y + h) or (L.y - h)
       L.point = point
     end
-    f:SetPoint(point, UIParent, "BOTTOMLEFT", L.x or 0, L.y or 0)
+    f:SetPoint(point, UIParent, "BOTTOMLEFT", (L.x or 0) / s, (L.y or 0) / s)
   end
 end
 
@@ -217,7 +227,22 @@ local function newRow()
   r.time:SetJustifyH("RIGHT")
   r:SetScript("OnEnter", function(self) UI.ShowTooltip(self, self.entry, self.spell) end)
   r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  -- Anchors never change; set them once here, not on every refresh.
+  r.bar:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 2, 0)
+  r.bar:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 0, 0)
+  r.bg:SetAllPoints(r.bar)
+  r.time:SetPoint("RIGHT", r.bar, "RIGHT", -4, 0)
+  r.name:SetPoint("LEFT", r.bar, "LEFT", 4, 0)
+  r.name:SetPoint("RIGHT", r.time, "LEFT", -4, 0)
   return r
+end
+
+-- Move a row or header only when its offset changed.
+local function place(region, f, y)
+  if region._y == y then return end
+  region._y = y
+  region:ClearAllPoints()
+  region:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -y)
 end
 
 local function sourceText(e, now)
@@ -254,10 +279,14 @@ end
 local function styleRow(r, e, spell, width)
   local L = ns.db.layout
   local h = rowHeight()
-  r:SetSize(width, h)
+  if r._w ~= width or r._h ~= h then
+    r._w, r._h = width, h
+    r:SetSize(width, h)
+    r.icon:SetSize(h, h)
+  end
   r.entry, r.spell = e, spell
-  r.icon:SetSize(h, h)
-  r.icon:SetTexture(ns.Spells.IconOf(spell))
+  local tex = ns.Spells.IconOf(spell)
+  if r._tex ~= tex then r._tex = tex; r.icon:SetTexture(tex) end
   local onCD = e.state == "cooldown"
   r.icon:SetDesaturated(onCD or e.unavailable)
   r.mark:SetShown(e.state == "assumed")
@@ -268,17 +297,6 @@ local function styleRow(r, e, spell, width)
   r.time:SetText(onCD and ns.TimeText(e.remaining) or "Ready")
   if onCD then r.time:SetTextColor(1, 1, 1) else r.time:SetTextColor(0.3, 1, 0.3) end
   if e.unavailable then r.time:SetTextColor(0.5, 0.5, 0.5) end
-
-  r.bar:ClearAllPoints()
-  r.bar:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 2, 0)
-  r.bar:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 0, 0)
-  r.bg:ClearAllPoints()
-  r.bg:SetAllPoints(r.bar)
-  r.name:ClearAllPoints()
-  r.name:SetPoint("LEFT", r.bar, "LEFT", 4, 0)
-  r.name:SetPoint("RIGHT", r.time, "LEFT", -4, 0)
-  r.time:ClearAllPoints()
-  r.time:SetPoint("RIGHT", r.bar, "RIGHT", -4, 0)
 
   if L.style == "icons" then
     r.bar:SetStatusBarColor(0, 0, 0, 0)
@@ -315,10 +333,10 @@ function UI.Refresh()
         nh = nh + 1
         local h = UI.headers[nh] or newHeader()
         UI.headers[nh] = h
-        h:ClearAllPoints()
-        h:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -y)
-        h:SetWidth(width - 2 * PAD)
-        h.icon:SetTexture(ns.Spells.IconOf(spell))
+        place(h, f, y)
+        if h._w ~= width then h._w = width; h:SetWidth(width - 2 * PAD) end
+        local tex = ns.Spells.IconOf(spell)
+        if h._tex ~= tex then h._tex = tex; h.icon:SetTexture(tex) end
         h.text:SetText(spell.name)
         h:Show()
         y = y + HEADER_H
@@ -326,8 +344,7 @@ function UI.Refresh()
           nr = nr + 1
           local r = UI.rows[nr] or newRow()
           UI.rows[nr] = r
-          r:ClearAllPoints()
-          r:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -y)
+          place(r, f, y)
           styleRow(r, e, spell, width - 2 * PAD)
           y = y + rowHeight() + 1
         end

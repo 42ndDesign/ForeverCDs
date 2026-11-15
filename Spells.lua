@@ -76,14 +76,17 @@ function Spells.NameOf(id)
   return name
 end
 
+local iconCache = {}
 function Spells.IconOf(spell)
   local id = spell and spell.ids and spell.ids[1]
   if not id then return 134400 end
+  if iconCache[id] then return iconCache[id] end
   local tex
   if C_Spell and C_Spell.GetSpellTexture then
     tex = ns.plain(ns.safe(C_Spell.GetSpellTexture, id))
   end
   if not tex and GetSpellTexture then tex = ns.plain(ns.safe(GetSpellTexture, id)) end
+  if tex then iconCache[id] = tex end
   return tex or 134400
 end
 
@@ -96,7 +99,7 @@ function Spells.MatchName(spell)
   if n then nameCache[id] = n; return n end
   return spell.name
 end
-function Spells.ClearCache() nameCache = {} end
+function Spells.ClearCache() nameCache = {}; iconCache = {} end
 
 -- Does a cast (spellID and/or name, either may be nil) match this spell?
 function Spells.Matches(id, spell, name)

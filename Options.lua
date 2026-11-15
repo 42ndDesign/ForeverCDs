@@ -924,7 +924,9 @@ local function buildParty(p)
         r:Show()
         r.who:SetText(e.m.name or "?"); Color(r.who, classColorHex(e.m.class))
         local where, dot
-        if F.Skipped(e.guid) then where, dot = "Icons on your frame are off", COL.knobOff
+        if F.Skipped(e.guid) then
+          where = (ns.db.show.self == false) and "Include yourself is off" or "Icons on your frame are off"
+          dot = COL.knobOff
         elseif P.mode ~= "frames" then where, dot = "Window mode", COL.knobOff
         elseif F.attached[e.guid] then where, dot = F.source[e.guid] or "Found", COL.green
         elseif F.missing[e.guid] then where, dot = "Not found: shown in the window", COL.amber

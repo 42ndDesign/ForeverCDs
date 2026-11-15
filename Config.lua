@@ -555,7 +555,15 @@ for _, e in ipairs({
 local dirtyAura, auraQueued = {}, false
 local function flushAuras()
   auraQueued = false
-  for unit in pairs(dirtyAura) do T.ScanAuras(unit) end
+  -- One scan per person: the player is also raidN or partyN's target token.
+  local done = {}
+  for unit in pairs(dirtyAura) do
+    local guid = T.GUIDForUnit(unit)
+    if not guid or not done[guid] then
+      if guid then done[guid] = true end
+      T.ScanAuras(unit)
+    end
+  end
   dirtyAura = {}
 end
 
@@ -566,9 +574,18 @@ local function queueSelf()
   C_Timer.After(0.1, function() selfQueued = false; T.PollSelf() end)
 end
 
+-- Roster events come in bursts while a group forms: rebuild once, 0.1 s later.
+local rosterQueued = false
 local function rosterChanged()
-  T.RebuildRoster()
-  UI.UpdateMode()
+  -- Unit tokens may now point at someone else: read GUIDs live until the rebuild.
+  T.unitGUID = { player = T.playerGUID }
+  if rosterQueued then return end
+  rosterQueued = true
+  C_Timer.After(0.1, function()
+    rosterQueued = false
+    T.RebuildRoster()
+    UI.UpdateMode()
+  end)
 end
 
 -- Records or talent answers changed: re-resolve frame strips and redraw, at most

@@ -196,8 +196,10 @@ end
 -- Source 1: group cast events (UNIT_SPELLCAST_SUCCEEDED)
 ---------------------------------------------------------------------------
 function T.OnCast(unit, castGUID, spellID)
-  local idSecret = ns.isSecret(spellID)
   local unitOK = ns.IsGroupUnit(unit)
+  -- Target, focus, nameplates and pets fire this too; skip them before any lookup.
+  if not unitOK and not ns.debug then return end
+  local idSecret = ns.isSecret(spellID)
   local id = ns.plain(spellID, "number")
   local name
   if id then name = ns.Spells.NameOf(id)
