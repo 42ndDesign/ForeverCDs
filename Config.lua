@@ -269,8 +269,19 @@ local function v2s(v)
   return tostring(v)
 end
 
+-- Probe output goes to chat and to ForeverCDsDB.probeLog, which /reload writes to
+-- WTF/Account/<account>/SavedVariables/ForeverCDs.lua (chat can't be copied).
+local function out(msg)
+  ns.Print(msg)
+  if not ns.db then return end
+  local log = ns.db.probeLog
+  if type(log) ~= "table" then log = {}; ns.db.probeLog = log end
+  log[#log + 1] = date("%H:%M:%S ") .. tostring(msg)
+  while #log > 400 do table.remove(log, 1) end
+end
+
 local function runProbe(unit, self)
-  local P = ns.Print
+  local P = out
   local insp = not self
   P(("%s probe for %s (%s):"):format(self and "Self talent" or "Inspect", v2s(ns.safe(UnitName, unit)), unit))
 
@@ -357,17 +368,17 @@ local function cmdInspect(rest)
     return runProbe("player", true)
   end
   if not ns.plain(ns.safe(UnitIsPlayer, unit), "boolean") then
-    return ns.Print("Target a player (or /fcds inspect party1) first.")
+    return out("Target a player (or /fcds inspect party1) first.")
   end
   local can = ns.safe(CanInspect, unit)
-  ns.Print(("CanInspect(%s) = %s, in combat: %s"):format(unit, v2s(can), v2s(ns.safe(InCombatLockdown))))
-  if not NotifyInspect then return ns.Print("NotifyInspect does not exist on this client.") end
+  out(("CanInspect(%s) = %s, in combat: %s"):format(unit, v2s(can), v2s(ns.safe(InCombatLockdown))))
+  if not NotifyInspect then return out("NotifyInspect does not exist on this client.") end
   probe = { unit = unit, guid = ns.UnitGUIDSafe(unit), t = ns.Now() }
   ns.safe(NotifyInspect, unit)
-  ns.Print("Inspect requested, waiting for INSPECT_READY (stay within about 28 yards)...")
+  out("Inspect requested, waiting for INSPECT_READY (stay within about 28 yards)...")
   C_Timer.After(5, function()
     if probe and ns.Now() - probe.t >= 4.9 then
-      ns.Print("No INSPECT_READY after 5 s. Reading anyway:")
+      out("No INSPECT_READY after 5 s. Reading anyway:")
       local u = probe.unit; probe = nil
       runProbe(u)
     end
@@ -377,7 +388,7 @@ end
 function ns.OnInspectReady(guid)
   if not probe then return end
   if probe.guid and not ns.isSecret(guid) and guid ~= probe.guid then return end
-  ns.Print(("INSPECT_READY after %.1f s (guid %s)"):format(ns.Now() - probe.t, v2s(guid)))
+  out(("INSPECT_READY after %.1f s (guid %s)"):format(ns.Now() - probe.t, v2s(guid)))
   local u = probe.unit; probe = nil
   runProbe(u)
 end
@@ -430,6 +441,9 @@ local function onSlash(msg)
       ns.Print(("%s = %s  (%s) - %s"):format(o.name, fmt(getOpt(o)), hint, o.label))
     end
   elseif cmd == "alert" then cmdAlert(rest)
+  elseif cmd == "inspect" and rest:lower() == "clear" then
+    if ns.db then ns.db.probeLog = nil end
+    ns.Print("Probe log cleared.")
   elseif cmd == "inspect" then cmdInspect(rest)
   else printHelp() end
 end
