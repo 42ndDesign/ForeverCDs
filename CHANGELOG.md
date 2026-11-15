@@ -1,5 +1,9 @@
 # ForeverCDs
 
+## v0.1.3-beta
+
+- Spell icons show again in the window, on party frames and in the options panel. Every icon had been showing as a question mark.
+
 ## v0.1.2-beta
 
 - Talent check only hides a player after a complete, recent inspect. A partial read, one that found no talents, one older than 30 minutes, or one taken before a spec change counts as "not checked yet".
