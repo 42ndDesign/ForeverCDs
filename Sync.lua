@@ -36,9 +36,11 @@ end
 -- Parse and validate one message. Returns key, remaining or nil.
 function S.Parse(msg)
   if type(msg) ~= "string" or #msg > 64 then return nil end
-  local key, rem = msg:match("^C|([%w]+)|(%d+)$")
+  local key, rem = msg:match("^C|([%w]+)|(%d%d?%d?%d?)$")
   if not key then return nil end
-  return key, tonumber(rem)
+  rem = tonumber(rem)
+  if not rem or rem > 7200 then return nil end
+  return key, rem
 end
 
 function S.OnMessage(prefix, msg, _, sender)
@@ -51,6 +53,6 @@ function S.OnMessage(prefix, msg, _, sender)
   if Ambiguate then name = ns.safe(Ambiguate, sender, "none") or sender end
   local guid = ns.Tracker.GUIDByName(name)
   if not guid or guid == ns.Tracker.playerGUID then return end
-  ns.Debug(("sync from %s: %s %ds"):format(tostring(name), key, rem))
+  ns.Debug(("sync from %s: %s %ss"):format(tostring(name), key, tostring(rem)))
   ns.Tracker.OnSync(guid, key, rem)
 end

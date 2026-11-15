@@ -1,5 +1,16 @@
 # ForeverCDs
 
+## Unreleased
+
+- Talent check only hides a player after a complete, recent inspect. A partial read, one that found no talents, one older than 30 minutes, or one taken before a spec change counts as "not checked yet".
+- A player whose inspect can't be read is retried with a growing wait, instead of every 2 seconds ahead of everyone else.
+- A finished cooldown no longer keeps a player without the talent on the list. A running one still does.
+- Players who leave keep their running cooldowns past 30 minutes until those run out, so Lay on Hands and Divine Intervention survive a long break.
+- Frame mode adds icons for a member as soon as they become eligible, without waiting for a roster change.
+- The window sort no longer reorders rows whose cooldowns end within 0.05 s of each other.
+- Sync ignores messages with more than 7200 seconds and won't match a sender by a short name two group members share.
+- Secret values are checked before any other test on them.
+
 ## v0.1.1-beta
 
 - Talent check for Mana Tide Totem and Power Infusion. Out of combat, ForeverCDs inspects shamans and priests in your group, one every 2 seconds, with no click needed. Players without the talent are hidden. Players it hasn't checked yet still show as assumed ready, and a seen cast counts as proof.

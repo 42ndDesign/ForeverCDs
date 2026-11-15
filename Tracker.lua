@@ -15,12 +15,22 @@ T.recent = {}        -- [guid .. key] = GetTime() of the last accepted cast
 T.pendingCast = {}   -- [guid .. key] = { t, spell } for cast alerts waiting on a target
 
 T.DEDUPE = 0.75      -- same GUID + spell within this many seconds counts once
-T.RETAIN = 1800      -- keep records of players who left for 30 minutes
+T.RETAIN = 1800      -- keep records of players who left for 30 minutes, or until their last cooldown ends
 T.SELF_GRACE = 2     -- ignore "no cooldown" from our own client this soon after a cast
 
 local RANK = { cast = 3, self = 3, sync = 2, aura = 1 }
 
 local function spells() return (ns.db and ns.db.spells) or {} end
+
+local function running(rec, now)
+  return rec and rec.duration > 0 and (rec.start + rec.duration) > now
+end
+
+-- True while any of this player's records is still counting down.
+local function anyRunning(list, now)
+  for _, rec in pairs(list) do if running(rec, now) then return true end end
+  return false
+end
 
 ---------------------------------------------------------------------------
 -- Roster
@@ -28,7 +38,7 @@ local function spells() return (ns.db and ns.db.spells) or {} end
 function T.GroupUnits()
   local units = {}
   local inRaid = ns.safe(IsInRaid)
-  if inRaid and not ns.isSecret(inRaid) then
+  if not ns.isSecret(inRaid) and inRaid then
     local n = ns.plain(ns.safe(GetNumGroupMembers), "number") or 0
     for i = 1, math.min(n, 40) do units[#units + 1] = "raid" .. i end
   else
@@ -92,7 +102,9 @@ function T.RebuildRoster()
   for guid in pairs(ns.cds) do
     if not seen[guid] then
       T.leftAt[guid] = T.leftAt[guid] or now
-      if now - T.leftAt[guid] > T.RETAIN then ns.cds[guid] = nil; T.leftAt[guid] = nil end
+      if now - T.leftAt[guid] > T.RETAIN and not anyRunning(ns.cds[guid], now) then
+        ns.cds[guid] = nil; T.leftAt[guid] = nil
+      end
     end
   end
   if T.onChange then T.onChange() end
@@ -105,22 +117,27 @@ end
 -- Find a roster GUID by player name ("Name" or "Name-Realm").
 function T.GUIDByName(name)
   if type(name) ~= "string" then return nil end
+  -- Exact full name first, then short name; a short name shared by two members matches neither.
+  for guid, m in pairs(ns.roster) do
+    if m.fullName == name then return guid end
+  end
   local short = name:match("^([^%-]+)")
+  local found
   for guid, m in pairs(ns.roster) do
-    if m.fullName == name or m.name == name then return guid end
+    if m.name == name or m.name == short then
+      if found then return nil end
+      found = guid
+    end
   end
-  for guid, m in pairs(ns.roster) do
-    if m.name == short then return guid end
-  end
-  return nil
+  return found
 end
 
 -- A talent spell is hidden only when an inspect says the player lacks it;
--- unchecked players stay listed, and a running record always shows.
+-- unchecked players stay listed, and a running cooldown always shows.
 local function talentOK(guid, spell)
   if not spell.talent or not ns.Talents then return true end
   if ns.Talents.Has(guid, spell) ~= false then return true end
-  return ns.cds[guid] ~= nil and ns.cds[guid][spell.key] ~= nil
+  return running(ns.cds[guid] and ns.cds[guid][spell.key], ns.Now()) and true or false
 end
 T.TalentOK = talentOK
 
@@ -143,9 +160,6 @@ end
 ---------------------------------------------------------------------------
 -- Records
 ---------------------------------------------------------------------------
-local function running(rec, now)
-  return rec and rec.duration > 0 and (rec.start + rec.duration) > now
-end
 
 -- Write a record if the source is allowed to replace what is there.
 function T.Start(guid, key, start, duration, source)
@@ -187,7 +201,7 @@ function T.OnCast(unit, castGUID, spellID)
   local id = ns.plain(spellID, "number")
   local name
   if id then name = ns.Spells.NameOf(id)
-  elseif spellID ~= nil and C_Spell and C_Spell.GetSpellName then
+  elseif idSecret and C_Spell and C_Spell.GetSpellName then
     name = ns.plain(ns.safe(C_Spell.GetSpellName, spellID), "string")
   end
   local guid = unitOK and T.GUIDForUnit(unit) or nil
@@ -282,7 +296,7 @@ function T.ScanAuras(unit)
   local now = ns.Now()
   for i = 1, 40 do
     local aura = ns.safe(C_UnitAuras.GetAuraDataByIndex, unit, i, "HELPFUL")
-    if aura == nil or ns.isSecret(aura) or type(aura) ~= "table" then break end
+    if ns.isSecret(aura) or type(aura) ~= "table" then break end
     local id = ns.field(aura, "spellId", "number")
     local name = ns.field(aura, "name", "string")
     local spell = (id or name) and ns.Spells.Find(spells(), id, name)
@@ -323,6 +337,7 @@ function T.OnSync(guid, key, remaining)
     if cur and running(cur, now) and (RANK[cur.source] or 0) > RANK.sync then return false end
     ns.cds[guid] = ns.cds[guid] or {}
     ns.cds[guid][key] = { start = now, duration = 0, source = "sync" }
+    if T.onChange then T.onChange() end
     return true
   end
   return T.Start(guid, key, now - (duration - remaining), duration, "sync")

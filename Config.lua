@@ -348,7 +348,7 @@ local function runProbe(unit, self)
         for _, nodeID in ipairs(nodes) do
           total = total + 1
           local info = ns.safe(C_Traits.GetNodeInfo, cid, nodeID)
-          if info == nil or ns.isSecret(info) then secret = secret + 1 else
+          if ns.isSecret(info) or info == nil then secret = secret + 1 else
             local ranks = ns.field(info, "ranksPurchased", "number") or ns.field(info, "currentRank", "number") or 0
             local active = ns.field(info, "activeEntry", "table")
             local entryID = active and ns.field(active, "entryID", "number")
@@ -571,6 +571,15 @@ local function rosterChanged()
   UI.UpdateMode()
 end
 
+-- Records or talent answers changed: re-resolve frame strips and redraw, at most
+-- once per 0.2 s (a newly eligible member needs a strip, not just a redraw).
+local changeQueued = false
+local function queueChange()
+  if changeQueued then return end
+  changeQueued = true
+  C_Timer.After(0.2, function() changeQueued = false; UI.UpdateMode() end)
+end
+
 local started = false
 ev:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
   if event == "UNIT_SPELLCAST_SUCCEEDED" then
@@ -590,6 +599,7 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
   elseif event == "PLAYER_LOGIN" then
     if not ns.db then ns.InitDB() end
     T.onCast = UI.OnCast
+    T.onChange = queueChange
     T.onOwnCast = function(spell, duration) S.Send(spell.key, duration) end
     if ns.RegisterPanel then ns.RegisterPanel() end
     T.RebuildRoster()

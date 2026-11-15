@@ -16,7 +16,8 @@ TL.STALE = 1800      -- re-inspect after 30 minutes (wall clock)
 TL.KEEP = 7 * 86400  -- forget players not seen for a week
 
 TL.pending = nil     -- { guid, unit, t } for our outstanding request
-TL.failed = {}       -- [guid] = Now() of the last timeout
+TL.failed = {}       -- [guid] = Now() of the last failed attempt
+TL.tries = {}        -- [guid] = failed attempts in a row; the wait doubles each time
 TL.last = -100       -- Now() of our last request
 
 local function cache()
@@ -25,6 +26,15 @@ local function cache()
   return ns.db.talents
 end
 TL.Cache = cache
+
+local function fail(guid, now)
+  TL.failed[guid] = now
+  TL.tries[guid] = (TL.tries[guid] or 0) + 1
+end
+
+local function backoff(guid)
+  return math.min(TL.RETRY * 2 ^ ((TL.tries[guid] or 1) - 1), TL.STALE)
+end
 
 function TL.Enabled()
   return not ns.db or ns.db.talentCheck ~= false
@@ -42,22 +52,26 @@ end
 ---------------------------------------------------------------------------
 -- Reading a trait config
 ---------------------------------------------------------------------------
--- Purchased talents of a trait config as { names = {[name]=rank}, ids = {[spellID]=rank}, n },
--- or nil when nothing could be read.
+-- Purchased talents of a trait config as { names = {[name]=rank}, ids = {[spellID]=rank}, n, complete },
+-- or nil when nothing could be read. complete is false when any tree, node, rank or
+-- purchased talent could not be read, or when no talent at all was found (the data
+-- is often not loaded yet): such a result proves what it found, never an absence.
 function TL.ReadConfig(configID)
   if not configID or not C_Traits then return nil end
   local cfg = ns.safe(C_Traits.GetConfigInfo, configID)
   local trees = ns.field(cfg, "treeIDs", "table")
   if not trees then return nil end
-  local res, readable = { names = {}, ids = {}, n = 0 }, 0
+  local res, readable, complete = { names = {}, ids = {}, n = 0 }, 0, true
   for _, treeID in ipairs(trees) do
     local nodes = ns.safe(C_Traits.GetTreeNodes, treeID)
     if type(nodes) == "table" and not ns.isSecret(nodes) then
       for _, nodeID in ipairs(nodes) do
         local info = ns.safe(C_Traits.GetNodeInfo, configID, nodeID)
-        if type(info) == "table" and not ns.isSecret(info) then
+        local ranks = ns.field(info, "ranksPurchased", "number") or ns.field(info, "currentRank", "number")
+        if not ranks then
+          complete = false
+        else
           readable = readable + 1
-          local ranks = ns.field(info, "ranksPurchased", "number") or ns.field(info, "currentRank", "number") or 0
           local active = ns.field(info, "activeEntry", "table")
           local entryID = active and ns.field(active, "entryID", "number")
           if ranks > 0 and entryID then
@@ -68,20 +82,31 @@ function TL.ReadConfig(configID)
             local name = ns.field(d, "overrideName", "string") or (sid and ns.Spells.NameOf(sid))
             if sid then res.ids[sid] = ranks end
             if name then res.names[name] = ranks end
-            if sid or name then res.n = res.n + 1 end
+            if sid or name then res.n = res.n + 1 else complete = false end
+          elseif ranks > 0 then
+            complete = false
           end
         end
       end
+    else
+      complete = false
     end
   end
   if readable == 0 then return nil end
+  res.complete = complete and res.n > 0
   return res
 end
 
 local function store(guid, res, spec)
   local c = cache()
   local old = c[guid]
-  c[guid] = { t = ns.Wall(), names = res.names, ids = res.ids, n = res.n, spec = spec }
+  local e = { t = ns.Wall(), names = res.names, ids = res.ids, n = res.n, spec = spec, complete = res.complete }
+  if not res.complete then
+    -- Keep cast proof and retry soon; this read cannot rule anything out.
+    e.forced = old and old.forced
+    e.dirty = true
+  end
+  c[guid] = e
   -- Report a change only when a tracked talent answer flips.
   if not old then return true end
   for _, s in pairs((ns.db and ns.db.spells) or {}) do
@@ -105,6 +130,9 @@ function TL.HasIn(entry, spell)
   local n = ns.Spells.MatchName(spell)
   if n and names[n] then return true end
   if spell.name and names[spell.name] then return true end
+  -- Only a complete, current read says "no".
+  if not entry.complete or entry.dirty then return nil end
+  if (entry.t or 0) == 0 or ns.Wall() - entry.t > TL.STALE then return nil end
   return false
 end
 
@@ -184,7 +212,7 @@ function TL.NextTarget(now, wall)
   local best, bestScore
   for guid, m in pairs(ns.roster) do
     if guid ~= ns.Tracker.playerGUID and m.unit and m.online ~= false and need[m.class]
-      and not (TL.failed[guid] and now - TL.failed[guid] < TL.RETRY) then
+      and not (TL.failed[guid] and now - TL.failed[guid] < backoff(guid)) then
       local e = c[guid]
       local score
       if not e or (e.t or 0) == 0 then score = 3
@@ -207,7 +235,7 @@ function TL.Tick()
   local now = ns.Now()
   if TL.pending then
     if now - TL.pending.t < TL.TIMEOUT then return end
-    TL.failed[TL.pending.guid] = now
+    fail(TL.pending.guid, now)
     TL.pending = nil
   end
   if now - TL.last < TL.INTERVAL or busy() then return end
@@ -221,15 +249,20 @@ end
 
 -- INSPECT_READY for anyone in the group is used, whoever asked for it.
 function TL.OnInspectReady(guid)
-  if guid == nil or ns.isSecret(guid) then return end
+  if ns.isSecret(guid) or guid == nil then return end
   local ours = TL.pending and TL.pending.guid == guid
   if ours then TL.pending = nil end
   local m = ns.roster[guid]
   if m and guid ~= ns.Tracker.playerGUID and TL.Enabled() then
     local cid = Constants and Constants.TraitConsts and Constants.TraitConsts.INSPECT_TRAIT_CONFIG_ID
     local res = TL.ReadConfig(cid or -1)
+    if not res or not res.complete then
+      -- Unreadable or partial: back off like a timeout, or the queue picks them again at once.
+      fail(guid, ns.Now())
+    else
+      TL.failed[guid], TL.tries[guid] = nil, nil
+    end
     if res then
-      TL.failed[guid] = nil
       local spec = m.unit and ns.plain(ns.safe(GetInspectSpecialization, m.unit), "number")
       if store(guid, res, spec) and ns.Tracker.onChange then ns.Tracker.onChange() end
     end
@@ -237,11 +270,13 @@ function TL.OnInspectReady(guid)
   if ours and not busy() then ns.safe(ClearInspectPlayer) end
 end
 
--- Drop old entries and stale forced flags at login.
+-- Drop entries older than KEEP at login. Entries saved before the complete flag
+-- existed are re-checked.
 function TL.Prune(wall)
   local c = cache()
   for guid, e in pairs(c) do
-    if type(e) ~= "table" or (e.t or 0) > 0 and wall - e.t > TL.KEEP then c[guid] = nil end
+    if type(e) ~= "table" or (e.t or 0) > 0 and wall - e.t > TL.KEEP then c[guid] = nil
+    elseif e.complete == nil and (e.t or 0) > 0 then e.dirty = true end
   end
 end
 

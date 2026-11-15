@@ -17,7 +17,14 @@ end
 ---------------------------------------------------------------------------
 -- WoW API stub
 ---------------------------------------------------------------------------
-local SECRET = setmetatable({}, { __tostring = function() return "<secret>" end })
+-- Any use of a secret other than issecretvalue, tostring or == raises, as in game.
+local function boom() error("secret value used", 2) end
+local SECRET = setmetatable({}, {
+  __tostring = function() return "<secret>" end,
+  __index = boom, __newindex = boom, __call = boom, __concat = boom, __len = boom,
+  __lt = boom, __le = boom, __add = boom, __sub = boom, __mul = boom, __div = boom,
+  __mod = boom, __pow = boom, __unm = boom,
+})
 local clock, wall = 1000, 1700000000
 local units = {}      -- token -> { guid, name, class, level }
 local raid = false
@@ -312,6 +319,49 @@ test("expired saved records are dropped", function()
   eq(ns.cds[DRU.guid], nil)
 end)
 
+test("a departed player's running cooldown outlives the 30-minute retention", function()
+  freshDB()
+  ns.db.spells.layonhands.enabled = true
+  local PAL = { guid = "Player-1-PAL", name = "Holy", class = "PALADIN", level = 60 }
+  party({ player = ME, party1 = PAL })
+  T.Start(PAL.guid, "layonhands", clock, 3600, "cast")
+  party({ player = ME })
+  clock = clock + 1801
+  T.RebuildRoster()
+  eq(ns.cds[PAL.guid] ~= nil, true, "still running, kept")
+  party({ player = ME, party1 = PAL })
+  local st, rem = T.GetState(PAL.guid, "layonhands")
+  eq(st, "cooldown"); near(rem, 1799)
+  party({ player = ME })
+  clock = clock + 1801
+  T.RebuildRoster()
+  eq(ns.cds[PAL.guid], nil, "purged once expired and past retention")
+end)
+
+test("sync sender: full name wins, an ambiguous short name matches nobody", function()
+  freshDB()
+  local A = { guid = "Player-1-A", name = "Bob", class = "DRUID", level = 60 }
+  local B = { guid = "Player-2-B", name = "Bob", class = "DRUID", level = 60 }
+  party({ player = ME, party1 = A, party2 = B })
+  ns.roster[B.guid].fullName = "Bob-Other"
+  eq(T.GUIDByName("Bob"), A.guid, "same-realm full name")
+  eq(T.GUIDByName("Bob-Other"), B.guid, "cross-realm full name")
+  eq(T.GUIDByName("Bob-Third"), nil, "short name shared by two")
+  eq(T.GUIDByName("Leaf-Elsewhere"), nil, "not grouped")
+end)
+
+test("sync rejects oversized numbers before formatting", function()
+  eq(ns.Sync.Parse("C|innervate|7200"), "innervate")
+  eq(ns.Sync.Parse("C|innervate|7201"), nil)
+  eq(ns.Sync.Parse("C|innervate|99999999999999999999"), nil)
+  freshDB()
+  party({ player = ME, party1 = DRU })
+  ns.Sync.OnMessage("FCDS", "C|innervate|99999999999999999999", "PARTY", "Leaf")
+  eq(ns.cds[DRU.guid], nil)
+  ns.Sync.OnMessage("FCDS", "C|innervate|100", "PARTY", "Leaf")
+  near(select(2, T.GetState(DRU.guid, "innervate")), 100)
+end)
+
 test("records kept 30 minutes after leaving", function()
   freshDB()
   party({ player = ME, party1 = DRU })
@@ -374,7 +424,7 @@ local function talentDB()
   freshDB()
   ns.db.spells.manatidetotem.enabled = true
   ns.db.talents = {}
-  TL.pending, TL.failed, TL.last, TL.paused = nil, {}, -100, nil
+  TL.pending, TL.failed, TL.tries, TL.last, TL.paused = nil, {}, {}, -100, nil
   notified = {}
 end
 
@@ -450,6 +500,76 @@ test("a seen cast proves the talent", function()
   T.OnCast("party1", "c", 16190)
   eq(TL.Has(SHB.guid, mt), true)
   eq(#T.Eligible(mt), 1)
+end)
+
+test("an expired record does not override a negative inspect", function()
+  talentDB()
+  party({ player = ME, party1 = SHB })
+  inspectTalents[SHB.guid] = { { 17364, "Stormstrike" } }
+  local mt = ns.db.spells.manatidetotem
+  T.Start(SHB.guid, "manatidetotem", clock, 300, "sync")
+  TL.Tick(); inspected = SHB.guid; TL.OnInspectReady(SHB.guid)
+  eq(#T.Eligible(mt), 1, "running cooldown still shows")
+  clock = clock + 301
+  eq(#T.Eligible(mt), 0, "hidden once it has run out")
+end)
+
+test("a partial inspect never hides a player", function()
+  talentDB()
+  party({ player = ME, party1 = SHA })
+  local mt = ns.db.spells.manatidetotem
+  inspectTalents[SHA.guid] = { { 17364, "Stormstrike" } }
+  local saved = C_Traits.GetNodeInfo
+  C_Traits.GetNodeInfo = function(cid, node)
+    if node == 99 then return { ranksPurchased = SECRET } end
+    return saved(cid, node)
+  end
+  TL.Tick(); inspected = SHA.guid; TL.OnInspectReady(SHA.guid)
+  C_Traits.GetNodeInfo = saved
+  eq(TL.Has(SHA.guid, mt), nil, "unknown, not false")
+  eq(#T.Eligible(mt), 1)
+  eq(TL.failed[SHA.guid] ~= nil, true, "retried later")
+end)
+
+test("an inspect with no talents found is not a negative", function()
+  talentDB()
+  party({ player = ME, party1 = SHA })
+  inspectTalents[SHA.guid] = {}
+  TL.Tick(); inspected = SHA.guid; TL.OnInspectReady(SHA.guid)
+  eq(TL.Has(SHA.guid, ns.db.spells.manatidetotem), nil)
+end)
+
+test("an unreadable inspect reply backs off instead of looping", function()
+  talentDB()
+  party({ player = ME, party1 = SHA, party2 = SHB })
+  inspectTalents[SHB.guid] = { { 17364, "Stormstrike" } }
+  local saved = C_Traits.GetConfigInfo
+  C_Traits.GetConfigInfo = function() if inspected == SHA.guid then return nil end return saved() end
+  local seen = {}
+  for _ = 1, 4 do
+    TL.Tick()
+    local g = TL.pending and TL.pending.guid
+    if g then seen[g] = (seen[g] or 0) + 1; inspected = g; TL.OnInspectReady(g) end
+    clock = clock + 2.1
+  end
+  C_Traits.GetConfigInfo = saved
+  eq(seen[SHA.guid], 1, "unreadable player asked once")
+  eq(seen[SHB.guid], 1, "other player got their turn")
+  eq(TL.tries[SHA.guid], 1)
+end)
+
+test("stale or dirty negatives become unknown", function()
+  talentDB()
+  party({ player = ME, party1 = SHB })
+  inspectTalents[SHB.guid] = { { 17364, "Stormstrike" } }
+  local mt = ns.db.spells.manatidetotem
+  TL.Tick(); inspected = SHB.guid; TL.OnInspectReady(SHB.guid)
+  eq(TL.Has(SHB.guid, mt), false)
+  TL.MarkDirty(SHB.guid)
+  eq(TL.Has(SHB.guid, mt), nil, "dirty")
+  TL.Cache()[SHB.guid].dirty = nil
+  wall = wall + TL.STALE + 1
+  eq(TL.Has(SHB.guid, mt), nil, "stale")
 end)
 
 test("talent check off shows everyone", function()

@@ -58,12 +58,16 @@ function UI.TestMembers(spell)
   return out
 end
 
+-- A strict order (table.sort needs one): ready first, then soonest ready, name, GUID.
 local function sortMembers(a, b)
   local ar, br = a.state ~= "cooldown", b.state ~= "cooldown"
   if ar ~= br then return ar end
-  if not ar and math.abs(a.remaining - b.remaining) > 0.05 then return a.remaining < b.remaining end
-  return (a.name or "") < (b.name or "")
+  if not ar and a.remaining ~= b.remaining then return a.remaining < b.remaining end
+  local an, bn = a.name or "", b.name or ""
+  if an ~= bn then return an < bn end
+  return (a.guid or "") < (b.guid or "")
 end
+UI.SortMembers = sortMembers
 
 -- Entries shown in the window for one spell.
 function UI.Members(spell, now)

@@ -26,14 +26,14 @@ end
 
 -- v if it is readable and of type t, else nil.
 function ns.plain(v, t)
-  if v == nil or ns.isSecret(v) then return nil end
+  if ns.isSecret(v) or v == nil then return nil end
   if t and type(v) ~= t then return nil end
   return v
 end
 
 -- Read a field of a table that may be secret or may error on access.
 function ns.field(tbl, key, t)
-  if tbl == nil or ns.isSecret(tbl) or type(tbl) ~= "table" then return nil end
+  if ns.isSecret(tbl) or type(tbl) ~= "table" then return nil end
   local ok, v = pcall(function() return tbl[key] end)
   if not ok then return nil end
   return ns.plain(v, t)
