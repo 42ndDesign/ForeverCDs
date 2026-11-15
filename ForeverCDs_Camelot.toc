@@ -7,6 +7,7 @@
 ## SavedVariables: ForeverCDsDB
 ## X-License: MIT
 ## X-Website: https://github.com/42ndDesign/ForeverCDs
+## X-Curse-Project-ID: 1806330
 
 Util.lua
 Spells.lua

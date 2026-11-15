@@ -12,8 +12,11 @@ packager builds the zip, creates a GitHub release and uploads to CurseForge.
    - Categories: Unit Frames / Healer, Raid Frames; License: MIT
    - Source: https://github.com/42ndDesign/ForeverCDs
 2. Put the project ID in **both** TOCs: `## X-Curse-Project-ID: <id>`.
-3. Repo secret `CF_API_KEY` (the same CurseForge API token ForeverTrack uses):
-   `gh secret set CF_API_KEY -R 42ndDesign/ForeverCDs`
+3. Repo secret `CF_API_KEY`, a CurseForge author API token. Make one at
+   https://authors.curseforge.com/#/settings/api-tokens (avatar → Settings → API Tokens). CurseForge shows it
+   once, so set the secret straight away: `gh secret set CF_API_KEY -R 42ndDesign/ForeverCDs` (prompts for it).
+   Lost the value? Generate a new token; there's no need to recover the old one. ForeverTrack has its own
+   `CF_API_KEY` secret, so if you revoke the old token, set the new one there too.
 4. Commit, then `git tag v0.1.0 && git push origin main --tags`.
 5. On CurseForge, check the file's game version is **Forever**. If the packager couldn't map
    interface 16001, set it by hand or add `args: -g 1.60.1` to the packager step.
