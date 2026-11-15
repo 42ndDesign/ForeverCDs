@@ -168,6 +168,7 @@ function TL.NoteCast(guid, spell)
   local e = c[guid]
   if not e then e = { t = 0, names = {}, ids = {}, n = 0 }; c[guid] = e end
   e.forced = e.forced or {}
+  e.cast = ns.Wall()
   if not e.forced[spell.key] then
     e.forced[spell.key] = true
     e.dirty = true
@@ -270,12 +271,13 @@ function TL.OnInspectReady(guid)
   if ours and not busy() then ns.safe(ClearInspectPlayer) end
 end
 
--- Drop entries older than KEEP at login. Entries saved before the complete flag
--- existed are re-checked.
+-- Drop entries not inspected or seen casting for KEEP at login. Entries saved
+-- before the complete flag existed are re-checked.
 function TL.Prune(wall)
   local c = cache()
   for guid, e in pairs(c) do
-    if type(e) ~= "table" or (e.t or 0) > 0 and wall - e.t > TL.KEEP then c[guid] = nil
+    local age = type(e) == "table" and ((e.t or 0) > 0 and e.t or e.cast or 0)
+    if type(e) ~= "table" or wall - age > TL.KEEP then c[guid] = nil
     elseif e.complete == nil and (e.t or 0) > 0 then e.dirty = true end
   end
 end

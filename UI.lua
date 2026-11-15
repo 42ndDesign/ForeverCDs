@@ -395,11 +395,13 @@ end
 function UI.CheckReadyAlerts()
   local A = ns.db.alerts
   local now = ns.Now()
+  -- Rebuilt each pass: someone who left on cooldown and rejoins ready gets no late alert.
+  local prevState, nextState = UI.prevState, {}
   for _, spell in ipairs(UI.SortedSpells()) do
     for _, guid in ipairs(T.Eligible(spell)) do
       local k = guid .. "\0" .. spell.key
       local state = T.GetState(guid, spell.key, now)
-      local prev = UI.prevState[k]
+      local prev = prevState[k]
       if A.ready and prev == "cooldown" and state == "ready" then
         local m = ns.roster[guid]
         if m and alertAllowed(m.name) then
@@ -409,9 +411,10 @@ function UI.CheckReadyAlerts()
           end
         end
       end
-      UI.prevState[k] = state
+      nextState[k] = state
     end
   end
+  UI.prevState = nextState
 end
 
 function UI.OnCast(guid, spell)

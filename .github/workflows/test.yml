@@ -5,15 +5,20 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: leafo/gh-actions-lua@v10
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: leafo/gh-actions-lua@35bcb06abec04ec87df82e08caa84d545348536e # v10
         with:
           luaVersion: "5.1.5"
       - name: Syntax check every Lua file
         run: for f in *.lua tests/*.lua; do luac -p "$f" || exit 1; done
-      - name: Unit tests (Tracker, Spells, Sync)
+      - name: Unit tests (Spells, Tracker, Talents, Sync)
         run: lua tests/run.lua
+      - name: Both TOCs match
+        run: diff ForeverCDs.toc ForeverCDs_Camelot.toc

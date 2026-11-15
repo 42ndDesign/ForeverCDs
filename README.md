@@ -34,11 +34,15 @@ or any spell you add, in party and raid. Shows them in a movable window or as ic
 | `/fcds frames <pattern>` / `clear` | Custom unit-frame name pattern, e.g. `ElvUF_PartyGroup1UnitButton%d` |
 | `/fcds lock` / `unlock` | Lock or unlock the window |
 | `/fcds test` | Toggle test mode with simulated members and timers |
-| `/fcds reset` | Reset position and options, keep the spell list |
+| `/fcds reset` | Reset position, options, talent results and the alert player list; keep the spell list |
 | `/fcds sync on` / `off` | Addon-message sync (off by default) |
 | `/fcds debug` | Log every group cast event: unit, GUID, spell ID, name, and which fields were secret |
 | `/fcds set <option> <value>` | Set any panel option; `/fcds options` lists them |
 | `/fcds alert players <names>` / `clear` | Limit alerts to these players |
+| `/fcds talents` | Who has each talent spell (Mana Tide Totem, Power Infusion), and when they were checked |
+| `/fcds inspect [unit \| player \| clear]` | Diagnostic probe of the talent APIs; output is saved to SavedVariables |
+| `/fcds options` | List every option with its value and allowed range |
+| `/fcds help` | List the commands in chat |
 
 ## How it detects casts
 
@@ -56,7 +60,7 @@ Anchors work the same for any unit frame. ForeverCDs finds each member's frame b
 ## Development
 
 ```
-lua tests/run.lua    # Lua 5.1; offline tests for Tracker, Spells and Sync
+lua tests/run.lua    # Lua 5.1; offline tests for Spells, Tracker, Talents and Sync
 ```
 
 See `docs/TESTING.md` for in-game checks and `docs/PUBLISHING.md` for releases.

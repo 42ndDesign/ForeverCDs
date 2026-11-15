@@ -43,4 +43,6 @@ Leave out how it started (one spell, one class, one bug). When a feature lands, 
 2. If the release adds or changes a feature, update the listing copy above, then paste the new
    summary and description into CurseForge. The packager uploads the file only, never the listing.
 3. Commit, `git tag vX.Y.Z`, `git push origin main --tags`.
-4. Never tag a test build: tags publish to CurseForge.
+4. Never tag a test build: tags publish to CurseForge. For a test zip, run the release workflow
+   by hand (Actions → Package and release → Run workflow): it builds the zip and attaches it to
+   the run without publishing anywhere.

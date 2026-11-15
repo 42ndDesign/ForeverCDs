@@ -141,12 +141,14 @@ local HELP = {
   "/fcds frames <pattern> | clear - custom unit-frame name pattern",
   "/fcds lock | unlock - lock or unlock the window",
   "/fcds test - simulated members and timers",
-  "/fcds reset - reset position and options, keep the spell list",
+  "/fcds reset - reset position, options, talent results and alert list; keep the spell list",
   "/fcds sync on | off - addon-message sync",
   "/fcds debug - log every group cast event",
   "/fcds talents - who has Mana Tide / Power Infusion (checked by automatic inspect)",
+  "/fcds inspect [unit | player | clear] - talent API probe, saved to SavedVariables",
   "/fcds set <option> <value> - any panel option; /fcds options lists them",
   "/fcds alert players <names> | clear - limit alerts to these players",
+  "/fcds help - this list",
 }
 
 local function printHelp()
@@ -172,7 +174,7 @@ local function cmdAdd(rest)
   local words = {}
   for w in rest:gmatch("%S+") do words[#words + 1] = w end
   local class
-  if #words > 1 and Spells.CLASSES[words[#words]:upper()] and words[#words] == words[#words]:upper() then
+  if #words > 1 and Spells.CLASSES[words[#words]:upper()] then
     class = table.remove(words):upper()
   end
   local query = table.concat(words, " ")
@@ -202,6 +204,8 @@ local function cmdAdd(rest)
     return ns.Print(("Which class casts %s? e.g. /fcds add %s DRUID"):format(name, query))
   end
   local key = ns.KeyFor(name)
+  -- Non-Latin names reduce to nothing; never collide with another spell's key.
+  if key == "" or ns.db.spells[key] then key = "id" .. id end
   ns.db.spells[key] = { key = key, name = name, class = class, ids = { id }, enabled = true }
   Spells.ClearCache()
   ns.Print(("Tracking %s (%s, ID %d, cd %ss)."):format(name, class, id, tostring(Spells.Cooldown(ns.db.spells[key]))))
@@ -221,7 +225,8 @@ local function cmdCd(rest)
   local s = spellText and Spells.Lookup(ns.db.spells, spellText)
   if not s then return ns.Print("Usage: /fcds cd <spell> <seconds>") end
   secs = tonumber(secs)
-  if secs and secs > 0 then s.cdOverride = secs else s.cdOverride = nil end
+  if not secs then return ns.Print("Usage: /fcds cd <spell> <seconds>") end
+  if secs > 0 then s.cdOverride = secs else s.cdOverride = nil end
   ns.Print(("%s cooldown: %ss%s"):format(s.name, tostring(Spells.Cooldown(s)), s.cdOverride and " (override)" or ""))
 end
 
@@ -263,7 +268,7 @@ end
 
 ---------------------------------------------------------------------------
 -- /fcds inspect: probe which talent APIs return readable data for another
--- player on this client. Diagnostic only; nothing uses the result yet.
+-- player on this client. Diagnostic only; Talents.lua does the real check.
 ---------------------------------------------------------------------------
 local probe = nil   -- { unit, guid, t }
 
@@ -450,7 +455,7 @@ end
 
 -- /fcds talents: what the automatic talent check knows about the group.
 local function cmdTalents()
-  out(("Talent check: %s. Pending: %s"):format(TL.Enabled() and "on" or "off (/fcds set talents on)",
+  ns.Print(("Talent check: %s. Pending: %s"):format(TL.Enabled() and "on" or "off (/fcds set talents on)",
     TL.pending and (ns.roster[TL.pending.guid] and ns.roster[TL.pending.guid].name or "?") or "none"))
   local any = false
   for _, s in ipairs(Spells.Sorted(ns.db.spells)) do
@@ -460,12 +465,12 @@ local function cmdTalents()
           any = true
           local e = TL.Cache()[guid]
           local age = e and e.t and e.t > 0 and (" checked %s ago"):format(ns.TimeText(ns.Wall() - e.t)) or ""
-          out(("  %s: %s - %s%s"):format(s.name, m.name or "?", TL.Describe(guid, s), age))
+          ns.Print(("  %s: %s - %s%s"):format(s.name, m.name or "?", TL.Describe(guid, s), age))
         end
       end
     end
   end
-  if not any then out("  No group members of a class with an enabled talent spell.") end
+  if not any then ns.Print("  No group members of a class with an enabled talent spell.") end
 end
 
 local function onSlash(msg)

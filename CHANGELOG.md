@@ -10,6 +10,12 @@
 - The window sort no longer reorders rows whose cooldowns end within 0.05 s of each other.
 - Sync ignores messages with more than 7200 seconds and won't match a sender by a short name two group members share.
 - Secret values are checked before any other test on them.
+- Changing the window scale keeps the window where you put it.
+- Frame mode moves icons when a unit-frame addon re-sorts its buttons, and "Include yourself" now applies there too.
+- Lighter in raids: the window redraws less, casts from non-group units are skipped early, roster changes are batched, and the frame scan backs off.
+- The "couldn't find party frame" notice waits a few seconds, so frames that load late don't trigger it.
+- `/fcds add` takes the class in any case, `/fcds cd` rejects a bad number instead of clearing the override, and spells with non-Latin names get their own key.
+- `/fcds talents` no longer writes to the probe log.
 
 ## v0.1.1-beta
 
@@ -18,7 +24,7 @@
 - `/fcds talents` lists who has each talent spell. The Spells tab has a "Check talents" toggle and shows how many players are still unchecked.
 - `/fcds inspect [unit | player]` is a diagnostic probe of the talent APIs. It saves its output to SavedVariables so it can be read after a `/reload`.
 
-## v0.1.0
+## v0.1.0-beta
 
 - First release. Tracks Innervate for every druid in your party or raid, whatever their spec. Only you need the addon.
 - Window mode, and party frame mode with icons on each member's unit frame (Blizzard frames, ForeverUnitFrames, ElvUI, Shadowed UF, Cell, Grid2, and a generic scan for other addons).

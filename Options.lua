@@ -35,13 +35,14 @@ local function Tex(parent, hex, layer, a)
 end
 
 local function SetBox(f, bg, border)
+  if not f.SetBackdropColor then return end
   if bg then local r, g, b = rgb(bg); f:SetBackdropColor(r, g, b, 1) end
   if border then local r, g, b = rgb(border); f:SetBackdropBorderColor(r, g, b, 1) end
 end
 
 local function Box(parent, bg, border, kind)
-  local f = CreateFrame(kind or "Frame", nil, parent, "BackdropTemplate")
-  f:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
+  local f = CreateFrame(kind or "Frame", nil, parent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+  if f.SetBackdrop then f:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 }) end
   SetBox(f, bg or COL.bg, border or COL.line)
   return f
 end
