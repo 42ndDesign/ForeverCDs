@@ -83,9 +83,10 @@ function Spells.IconOf(spell)
   if iconCache[id] then return iconCache[id] end
   local tex
   if C_Spell and C_Spell.GetSpellTexture then
-    tex = ns.plain(ns.safe(C_Spell.GetSpellTexture, id))
+    -- Parentheses keep only the first return: it also returns originalIconID.
+    tex = ns.plain((ns.safe(C_Spell.GetSpellTexture, id)))
   end
-  if not tex and GetSpellTexture then tex = ns.plain(ns.safe(GetSpellTexture, id)) end
+  if not tex and GetSpellTexture then tex = ns.plain((ns.safe(GetSpellTexture, id))) end
   if tex then iconCache[id] = tex end
   return tex or 134400
 end

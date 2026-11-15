@@ -375,6 +375,15 @@ test("records kept 30 minutes after leaving", function()
   eq(ns.cds[DRU.guid], nil, "purged")
 end)
 
+test("spell icon from C_Spell.GetSpellTexture's two return values", function()
+  freshDB()
+  local saved = C_Spell.GetSpellTexture
+  C_Spell.GetSpellTexture = function(id) return 136048, 136048 end   -- iconID, originalIconID
+  eq(Spells.IconOf(ns.db.spells.innervate), 136048)
+  C_Spell.GetSpellTexture = saved
+  Spells.ClearCache()
+end)
+
 test("panel order and cooldown source", function()
   freshDB()
   ns.db.spells.zzcustom = { key = "zzcustom", name = "Aaa Custom", class = "MAGE", ids = { 1 }, cd = 10 }

@@ -24,10 +24,11 @@ function ns.safe(fn, ...)
   return unpack(r, 2, r.n)
 end
 
--- v if it is readable and of type t, else nil.
+-- v if it is readable and of type t, else nil. A t that is not a type name is
+-- ignored, so a stray second return from ns.safe(...) can't reject v.
 function ns.plain(v, t)
   if ns.isSecret(v) or v == nil then return nil end
-  if t and type(v) ~= t then return nil end
+  if type(t) == "string" and type(v) ~= t then return nil end
   return v
 end
 
