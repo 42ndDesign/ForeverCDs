@@ -8,4 +8,5 @@
 - "Assumed ready" `?` mark for cooldowns it has not seen start.
 - Running cooldowns survive `/reload` and relog.
 - Optional ready and cast alerts, and optional addon-message sync.
+- Options panel with tabs for Spells, Window, Party frames, and Alerts & sync. The Window and Party frames tabs show a live preview, and the Party frames tab lists the unit frame found for each member.
 - `/fcds debug` logs every group cast event for bug reports.
