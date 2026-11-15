@@ -1,6 +1,6 @@
 # ForeverCDs
 
-## Unreleased
+## v0.1.2-beta
 
 - Talent check only hides a player after a complete, recent inspect. A partial read, one that found no talents, one older than 30 minutes, or one taken before a spec change counts as "not checked yet".
 - A player whose inspect can't be read is retried with a growing wait, instead of every 2 seconds ahead of everyone else.
