@@ -1,7 +1,7 @@
 -- ForeverCDs: defaults, saved-variable migration, slash commands, options
 -- panel and event wiring.
 local ADDON, ns = ...
-local T, UI, F, S, Spells = ns.Tracker, ns.UI, ns.Frames, ns.Sync, ns.Spells
+local T, UI, F, S, Spells, TL = ns.Tracker, ns.UI, ns.Frames, ns.Sync, ns.Spells, ns.Talents
 
 local DB_VERSION = 1
 
@@ -18,6 +18,8 @@ ns.defaults = {
   show = { solo = false, party = true, raid = true, self = true },
   alerts = { ready = false, readySound = true, cast = false, players = {} },
   sync = false,
+  talentCheck = true,
+  talents = {},
   saved = {},
 }
 
@@ -25,7 +27,7 @@ local function fill(dst, src)
   for k, v in pairs(src) do
     if dst[k] == nil then
       dst[k] = Spells.copy(v)
-    elseif type(v) == "table" and type(dst[k]) == "table" and k ~= "spells" and k ~= "saved" and k ~= "players" then
+    elseif type(v) == "table" and type(dst[k]) == "table" and k ~= "spells" and k ~= "saved" and k ~= "players" and k ~= "talents" then
       fill(dst[k], v)
     end
   end
@@ -75,6 +77,7 @@ ns.options = {
   { name = "readysound", path = { "alerts", "readySound" }, kind = "bool", label = "Play a sound with the ready alert" },
   { name = "castalert",  path = { "alerts", "cast" },    kind = "bool",   label = "Print tracked casts" },
   { name = "sync",       path = { "sync" },              kind = "bool",   label = "Addon-message sync (best effort)" },
+  { name = "talents",    path = { "talentCheck" },       kind = "bool",   label = "Check talents by inspecting (out of combat)", apply = function() T.RebuildRoster() end },
 }
 
 local function getOpt(o)
@@ -141,6 +144,7 @@ local HELP = {
   "/fcds reset - reset position and options, keep the spell list",
   "/fcds sync on | off - addon-message sync",
   "/fcds debug - log every group cast event",
+  "/fcds talents - who has Mana Tide / Power Infusion (checked by automatic inspect)",
   "/fcds set <option> <value> - any panel option; /fcds options lists them",
   "/fcds alert players <names> | clear - limit alerts to these players",
 }
@@ -424,6 +428,7 @@ local function cmdInspect(rest)
   out(("CanInspect(%s) = %s, in combat: %s"):format(unit, v2s(can), v2s(ns.safe(InCombatLockdown))))
   if not NotifyInspect then return out("NotifyInspect does not exist on this client.") end
   probe = { unit = unit, guid = ns.UnitGUIDSafe(unit), t = ns.Now() }
+  TL.pending = nil; TL.paused = ns.Now() + 6
   ns.safe(NotifyInspect, unit)
   out("Inspect requested, waiting for INSPECT_READY (stay within about 28 yards)...")
   C_Timer.After(5, function()
@@ -441,6 +446,26 @@ function ns.OnInspectReady(guid)
   out(("INSPECT_READY after %.1f s (guid %s)"):format(ns.Now() - probe.t, v2s(guid)))
   local u = probe.unit; probe = nil
   runProbe(u)
+end
+
+-- /fcds talents: what the automatic talent check knows about the group.
+local function cmdTalents()
+  out(("Talent check: %s. Pending: %s"):format(TL.Enabled() and "on" or "off (/fcds set talents on)",
+    TL.pending and (ns.roster[TL.pending.guid] and ns.roster[TL.pending.guid].name or "?") or "none"))
+  local any = false
+  for _, s in ipairs(Spells.Sorted(ns.db.spells)) do
+    if s.enabled and s.talent then
+      for guid, m in pairs(ns.roster) do
+        if m.class == s.class then
+          any = true
+          local e = TL.Cache()[guid]
+          local age = e and e.t and e.t > 0 and (" checked %s ago"):format(ns.TimeText(ns.Wall() - e.t)) or ""
+          out(("  %s: %s - %s%s"):format(s.name, m.name or "?", TL.Describe(guid, s), age))
+        end
+      end
+    end
+  end
+  if not any then out("  No group members of a class with an enabled talent spell.") end
 end
 
 local function onSlash(msg)
@@ -491,6 +516,7 @@ local function onSlash(msg)
       ns.Print(("%s = %s  (%s) - %s"):format(o.name, fmt(getOpt(o)), hint, o.label))
     end
   elseif cmd == "alert" then cmdAlert(rest)
+  elseif cmd == "talents" then cmdTalents()
   elseif cmd == "inspect" and rest:lower() == "clear" then
     if ns.db then ns.db.probeLog = nil end
     ns.Print("Probe log cleared.")
@@ -521,7 +547,8 @@ for _, e in ipairs({
   "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_LOGOUT", "PLAYER_ENTERING_WORLD",
   "GROUP_ROSTER_UPDATE", "UNIT_CONNECTION", "UNIT_LEVEL", "UNIT_SPELLCAST_SUCCEEDED",
   "UNIT_AURA", "SPELL_UPDATE_COOLDOWN", "CHAT_MSG_ADDON", "PLAYER_REGEN_ENABLED",
-  "EDIT_MODE_LAYOUTS_UPDATED", "INSPECT_READY",
+  "EDIT_MODE_LAYOUTS_UPDATED", "INSPECT_READY", "TRAIT_CONFIG_UPDATED", "PLAYER_TALENT_UPDATE",
+  "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_SPECIALIZATION_CHANGED",
 }) do tryRegister(e) end
 
 -- UNIT_AURA can be busy in a raid: batch dirty units and scan 0.2 s later.
@@ -567,12 +594,21 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
     if ns.RegisterPanel then ns.RegisterPanel() end
     T.RebuildRoster()
     T.Restore(ns.db)
+    TL.Start()
     started = true
     UI.Start()
     UI.UpdateMode()
     queueSelf()
   elseif event == "INSPECT_READY" then
+    if started then TL.OnInspectReady(a1) end
     ns.OnInspectReady(a1)
+  elseif event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_TALENT_UPDATE"
+      or event == "ACTIVE_TALENT_GROUP_CHANGED" then
+    if started then C_Timer.After(0.5, function() TL.ReadSelf() end) end
+  elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
+    if not started then return end
+    if a1 == nil or a1 == "player" then C_Timer.After(0.5, function() TL.ReadSelf() end)
+    elseif ns.IsGroupUnit(a1) then TL.MarkDirty(T.GUIDForUnit(a1)) end
   elseif event == "PLAYER_LOGOUT" then
     if ns.db then T.Save(ns.db) end
   elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD"

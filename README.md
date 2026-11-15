@@ -3,7 +3,7 @@
 Tracks group cooldowns in **World of Warcraft: Forever**: Innervate, Rebirth, Lay on Hands, Power Infusion
 or any spell you add, in party and raid. Shows them in a movable window or as icons on your unit frames.
 
-- Tracks **every** group member whose class can cast a tracked spell. There is no spec, role or talent filter, so a feral druid's Innervate counts.
+- Tracks **every** group member whose class can cast a tracked spell, so a feral druid's Innervate counts. Talent spells (Mana Tide Totem, Power Infusion) are checked by an automatic inspect out of combat, and players without the talent are hidden. `/fcds talents` lists the results.
 - Works in party and raid (up to 40). **Only you need the addon**: it reads group cast events, your own cooldowns and buffs it sees.
 - If it hasn't seen a cooldown start, it says so: those show as *assumed ready* with a `?` mark, never as plain "Ready".
 - Default list is Innervate only. Presets you can turn on: Rebirth, Tranquility, Mana Tide Totem, Blessing of Protection, Lay on Hands, Divine Intervention, Fear Ward, Power Infusion, Soulstone Resurrection. Add any other spell with `/fcds add`.

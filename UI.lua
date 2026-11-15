@@ -240,6 +240,9 @@ function UI.ShowTooltip(owner, e, spell)
   if e.unavailable then state = state .. " - dead or offline" end
   GameTooltip:AddLine(state, 0.9, 0.9, 0.9)
   GameTooltip:AddLine(sourceText(e, now), 0.6, 0.6, 0.6)
+  if spell.talent and e.guid and ns.Talents and not e.test then
+    GameTooltip:AddLine("Talent: " .. ns.Talents.Describe(e.guid, spell), 0.6, 0.8, 1)
+  end
   if e.test then GameTooltip:AddLine("Test mode", 1, 0.5, 0.2) end
   GameTooltip:Show()
 end

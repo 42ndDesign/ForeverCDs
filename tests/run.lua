@@ -37,7 +37,7 @@ function UnitLevel(u) return units[u] and units[u].level or 0 end
 function UnitIsConnected(u) return units[u] and not units[u].offline end
 function UnitIsDeadOrGhost(u) return units[u] and units[u].dead or false end
 function IsPlayerSpell(id) return units.player and units.player.known and units.player.known[id] or false end
-local spellNames = { [29166] = "Innervate", [20484] = "Rebirth", [99999] = "Innervate", [6346] = "Fear Ward" }
+local spellNames = { [16190] = "Mana Tide Totem", [29166] = "Innervate", [20484] = "Rebirth", [99999] = "Innervate", [6346] = "Fear Ward" }
 C_Spell = {
   GetSpellName = function(id) if id == SECRET then return SECRET end return spellNames[id] end,
   GetSpellCooldown = function() return nil end,
@@ -45,7 +45,7 @@ C_Spell = {
 C_UnitAuras = { GetAuraDataByIndex = function(u, i) return auras[u] and auras[u][i] end }
 
 local ns = {}
-for _, f in ipairs({ "Util.lua", "Spells.lua", "Tracker.lua", "Sync.lua" }) do
+for _, f in ipairs({ "Util.lua", "Spells.lua", "Tracker.lua", "Talents.lua", "Sync.lua" }) do
   local chunk = assert(loadfile(f))
   chunk("ForeverCDs", ns)
 end
@@ -341,6 +341,124 @@ test("time text", function()
   eq(ns.TimeText(59.2), "60")
   eq(ns.TimeText(9.1), "10")
   eq(ns.TimeText(0), "")
+end)
+
+---------------------------------------------------------------------------
+-- Talents
+---------------------------------------------------------------------------
+-- Stub trait API: inspectTalents[guid] = { {spellID, name, ranks}, ... }
+local inspectTalents, inspected = {}, nil
+local notified = {}
+Constants = { TraitConsts = { INSPECT_TRAIT_CONFIG_ID = -1 } }
+C_Traits = {
+  GetConfigInfo = function(cid) return { treeIDs = { 1 } } end,
+  GetTreeNodes = function() local t = {}; for i = 1, #(inspectTalents[inspected] or {}) do t[i] = i end; t[#t + 1] = 99; return t end,
+  GetNodeInfo = function(cid, node)
+    local x = (inspectTalents[inspected] or {})[node]
+    if not x then return { ranksPurchased = 0 } end
+    return { ranksPurchased = x[3] or 1, activeEntry = { entryID = node } }
+  end,
+  GetEntryInfo = function(cid, entry) return { definitionID = entry } end,
+  GetDefinitionInfo = function(def) local x = inspectTalents[inspected][def]; return { spellID = x[1], overrideName = x[2] } end,
+}
+function NotifyInspect(u) notified[#notified + 1] = u end
+function CanInspect() return true end
+function ClearInspectPlayer() end
+function InCombatLockdown() return false end
+local TL = ns.Talents
+
+local SHA = { guid = "Player-1-SHA", name = "Tide", class = "SHAMAN", level = 60 }
+local SHB = { guid = "Player-1-SHB", name = "Storm", class = "SHAMAN", level = 60 }
+
+local function talentDB()
+  freshDB()
+  ns.db.spells.manatidetotem.enabled = true
+  ns.db.talents = {}
+  TL.pending, TL.failed, TL.last, TL.paused = nil, {}, -100, nil
+  notified = {}
+end
+
+test("unchecked talent players stay listed", function()
+  talentDB()
+  party({ player = ME, party1 = SHA, party2 = SHB })
+  eq(#T.Eligible(ns.db.spells.manatidetotem), 2)
+  eq(TL.Has(SHA.guid, ns.db.spells.manatidetotem), nil)
+end)
+
+test("inspect queue requests, reads, hides players without the talent", function()
+  talentDB()
+  party({ player = ME, party1 = SHA, party2 = SHB })
+  inspectTalents[SHA.guid] = { { 16190, "Mana Tide Totem" }, { 16180, "Healing Grace", 3 } }
+  inspectTalents[SHB.guid] = { { 17364, "Stormstrike" } }
+  TL.Tick()
+  eq(#notified, 1, "one request")
+  local first = TL.pending.guid
+  TL.Tick()
+  eq(#notified, 1, "waits for the reply")
+  inspected = first; TL.OnInspectReady(first)
+  eq(TL.pending, nil)
+  clock = clock + 2.1
+  TL.Tick()
+  eq(#notified, 2, "second request after the interval")
+  local second = TL.pending.guid
+  inspected = second; TL.OnInspectReady(second)
+  local mt = ns.db.spells.manatidetotem
+  eq(TL.Has(SHA.guid, mt), true)
+  eq(TL.Has(SHB.guid, mt), false)
+  local list = T.Eligible(mt)
+  eq(#list, 1); eq(list[1], SHA.guid)
+  clock = clock + 2.1
+  TL.Tick()
+  eq(#notified, 2, "nothing left to inspect")
+end)
+
+test("talent match by name when the ID differs", function()
+  talentDB()
+  party({ player = ME, party1 = SHA })
+  inspectTalents[SHA.guid] = { { 1234567, "Mana Tide Totem" } }
+  TL.Tick(); inspected = SHA.guid; TL.OnInspectReady(SHA.guid)
+  eq(TL.Has(SHA.guid, ns.db.spells.manatidetotem), true)
+end)
+
+test("no inspects in combat; timeouts back off", function()
+  talentDB()
+  party({ player = ME, party1 = SHA })
+  InCombatLockdown = function() return true end
+  TL.Tick()
+  eq(#notified, 0, "combat")
+  InCombatLockdown = function() return false end
+  TL.Tick()
+  eq(#notified, 1)
+  clock = clock + 5
+  TL.Tick()   -- times out
+  eq(TL.pending, nil); eq(TL.failed[SHA.guid] ~= nil, true)
+  clock = clock + 3
+  TL.Tick()
+  eq(#notified, 1, "backing off")
+  clock = clock + 20
+  TL.Tick()
+  eq(#notified, 2, "retried")
+end)
+
+test("a seen cast proves the talent", function()
+  talentDB()
+  party({ player = ME, party1 = SHB })
+  inspectTalents[SHB.guid] = { { 17364, "Stormstrike" } }
+  TL.Tick(); inspected = SHB.guid; TL.OnInspectReady(SHB.guid)
+  local mt = ns.db.spells.manatidetotem
+  eq(#T.Eligible(mt), 0)
+  T.OnCast("party1", "c", 16190)
+  eq(TL.Has(SHB.guid, mt), true)
+  eq(#T.Eligible(mt), 1)
+end)
+
+test("talent check off shows everyone", function()
+  talentDB()
+  party({ player = ME, party1 = SHB })
+  inspectTalents[SHB.guid] = { { 17364, "Stormstrike" } }
+  TL.Tick(); inspected = SHB.guid; TL.OnInspectReady(SHB.guid)
+  ns.db.talentCheck = false
+  eq(#T.Eligible(ns.db.spells.manatidetotem), 1)
 end)
 
 print(("%d passed, %d failed"):format(passed, failed))

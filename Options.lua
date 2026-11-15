@@ -462,7 +462,10 @@ end
 
 local function buildSpells(p)
   local h = Heading(p, "Tracked spells"); h:SetPoint("TOPLEFT")
-  local sub = Muted(p, "Shown for every group member of that class, any spec. Click a cooldown to set your own.")
+  local talentChk = Check(p, "Check talents (auto inspect)", function(v) set("talents", v); O.Refresh() end)
+  talentChk:SetPoint("TOPRIGHT", 0, -2)
+  Tip(talentChk, "Out of combat, quietly inspects group members of a class with a talent spell (Mana Tide Totem, Power Infusion), one every 2 seconds, and hides the spell for those without the talent. /fcds talents lists the results.")
+  local sub = Muted(p, "Shown for every group member of that class. Talent spells hide players an inspect shows lack the talent. Click a cooldown to set your own.")
   sub:SetPoint("TOPLEFT", h, "BOTTOMLEFT", 0, -6)
   sub:SetPoint("RIGHT", p, "RIGHT")
 
@@ -609,6 +612,7 @@ local function buildSpells(p)
   end
 
   refreshers.spells = function()
+    talentChk:Set(ns.db.talentCheck ~= false)
     local list = Spells.Sorted(ns.db.spells)
     for i, s in ipairs(list) do
       local r = rows[i] or newRow(i)
@@ -624,7 +628,15 @@ local function buildSpells(p)
       Color(r.name, on and COL.text or COL.offText)
       local cname = Spells.CLASS_NAMES[s.class] or s.class or "?"
       local tags = ""
-      if s.talent then tags = tags .. " · talent" end
+      if s.talent then
+        local unk = 0
+        if ns.Talents and ns.Talents.Enabled() then
+          for guid, m in pairs(ns.roster) do
+            if m.class == s.class and ns.Talents.Has(guid, s) == nil then unk = unk + 1 end
+          end
+        end
+        tags = tags .. (unk > 0 and (" · talent, %d unchecked"):format(unk) or " · talent")
+      end
       if not Spells.presets[s.key] then tags = tags .. " · custom" end
       r.class:SetText(("|cff%s%s|r|cff%s%s|r"):format(on and classColorHex(s.class) or COL.muted, cname, COL.muted, tags))
       r.cdText:SetText(fmtCD(Spells.Cooldown(s)))

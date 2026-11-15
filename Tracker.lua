@@ -115,14 +115,25 @@ function T.GUIDByName(name)
   return nil
 end
 
--- Members who can cast this spell: class match and level >= minLevel (when known).
+-- A talent spell is hidden only when an inspect says the player lacks it;
+-- unchecked players stay listed, and a running record always shows.
+local function talentOK(guid, spell)
+  if not spell.talent or not ns.Talents then return true end
+  if ns.Talents.Has(guid, spell) ~= false then return true end
+  return ns.cds[guid] ~= nil and ns.cds[guid][spell.key] ~= nil
+end
+T.TalentOK = talentOK
+
+-- Members who can cast this spell: class match, level >= minLevel (when known)
+-- and, for talent spells, not known to lack the talent.
 function T.Eligible(spell)
   local list = {}
   local showSelf = not ns.db or ns.db.show == nil or ns.db.show.self ~= false
   for guid, m in pairs(ns.roster) do
     if m.class == spell.class
       and (not spell.minLevel or not m.level or m.level >= spell.minLevel)
-      and (showSelf or guid ~= T.playerGUID) then
+      and (showSelf or guid ~= T.playerGUID)
+      and talentOK(guid, spell) then
       list[#list + 1] = guid
     end
   end
@@ -203,6 +214,7 @@ function T.OnCast(unit, castGUID, spellID)
 
   local duration = ns.Spells.Cooldown(spell)
   if duration <= 0 then return end
+  if ns.Talents then ns.Talents.NoteCast(guid, spell) end
   T.Start(guid, spell.key, now, duration, "cast")
   T.pendingCast[dk] = { t = now, guid = guid, spell = spell }
   if T.onCast then T.onCast(guid, spell) end

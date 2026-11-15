@@ -1,5 +1,12 @@
 # ForeverCDs
 
+## v0.1.1-beta
+
+- Talent check for Mana Tide Totem and Power Infusion. Out of combat, ForeverCDs inspects shamans and priests in your group, one every 2 seconds, with no click needed. Players without the talent are hidden. Players it hasn't checked yet still show as assumed ready, and a seen cast counts as proof.
+- Results are kept between sessions and refreshed every 30 minutes, after a spec change, or after a cast.
+- `/fcds talents` lists who has each talent spell. The Spells tab has a "Check talents" toggle and shows how many players are still unchecked.
+- `/fcds inspect [unit | player]` is a diagnostic probe of the talent APIs. It saves its output to SavedVariables so it can be read after a `/reload`.
+
 ## v0.1.0
 
 - First release. Tracks Innervate for every druid in your party or raid, whatever their spec. Only you need the addon.

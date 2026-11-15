@@ -12,6 +12,7 @@
 Util.lua
 Spells.lua
 Tracker.lua
+Talents.lua
 Sync.lua
 UI.lua
 Frames.lua

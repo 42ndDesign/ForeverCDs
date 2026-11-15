@@ -268,7 +268,8 @@ local function memberEntries(guid, now)
   local m = ns.roster[guid]
   local out = {}
   for _, spell in ipairs(ns.UI.SortedSpells()) do
-    if m.class == spell.class and (not spell.minLevel or not m.level or m.level >= spell.minLevel) then
+    if m.class == spell.class and (not spell.minLevel or not m.level or m.level >= spell.minLevel)
+      and T.TalentOK(guid, spell) then
       local state, rem, rec, unavailable = T.GetState(guid, spell.key, now)
       out[#out + 1] = { spell = spell, entry = {
         guid = guid, name = m.name, fullName = m.fullName, class = m.class,

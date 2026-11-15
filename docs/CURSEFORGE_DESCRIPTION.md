@@ -14,7 +14,8 @@ ForeverCDs tracks group cooldowns in WoW: Forever, in party and in raid up to 40
 
 - Innervate is on by default. Presets you can turn on: Rebirth, Tranquility, Mana Tide Totem, Blessing of Protection, Lay on Hands, Divine Intervention, Fear Ward, Power Infusion and Soulstone Resurrection.
 - Add any other spell by name or ID, and set your own cooldown length for any spell.
-- Every group member whose class can cast the spell. There's no spec or role filter, so a feral druid's Innervate counts.
+- Every group member whose class can cast the spell, so a feral druid's Innervate counts.
+- Talent spells like Mana Tide Totem and Power Infusion only show for players who have the talent. ForeverCDs checks with a quiet inspect out of combat, one player every 2 seconds.
 - A cooldown ForeverCDs hasn't seen start shows as assumed ready with a `?` mark. It never guesses "Ready".
 - Running timers survive `/reload` and relog.
 
