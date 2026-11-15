@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs>
+<radialGradient id="hbg" cx="50%" cy="45%" r="75%"><stop offset="0" stop-color="#4a5fd0"/><stop offset=".45" stop-color="#22266e"/><stop offset="1" stop-color="#0a0b24"/></radialGradient>
+<linearGradient id="hiron" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9a9a9a"/><stop offset=".3" stop-color="#4a4a4a"/><stop offset=".7" stop-color="#262626"/><stop offset="1" stop-color="#5c5c5c"/></linearGradient>
+<linearGradient id="hgold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff0b0"/><stop offset=".25" stop-color="#e2b04a"/><stop offset=".55" stop-color="#8a5a1c"/><stop offset=".8" stop-color="#d9a441"/><stop offset="1" stop-color="#6b4314"/></linearGradient>
+<linearGradient id="hgoldv" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff0b0"/><stop offset=".4" stop-color="#d9a441"/><stop offset="1" stop-color="#6b4314"/></linearGradient>
+<radialGradient id="hhot" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#ffffff"/><stop offset=".3" stop-color="#ffe9a0"/><stop offset="1" stop-color="#ffb030" stop-opacity="0"/></radialGradient>
+<filter id="hblur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="28"/></filter>
+<filter id="hsoft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="8"/></filter>
+<filter id="hglow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="12" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="htex" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".012 .02" numOctaves="4" seed="7"/>
+  <feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .55 -.18"/><feComposite in2="SourceGraphic" operator="in"/></filter>
+</defs>
+<rect width="1024" height="1024" rx="200" fill="#1b222b"/>
+<clipPath id="hc"><rect x="168" y="168" width="688" height="688" rx="18"/></clipPath>
+<rect x="128" y="128" width="768" height="768" rx="44" fill="url(#hiron)"/>
+<rect x="150" y="150" width="724" height="724" rx="30" fill="#0c0c0c"/>
+<g clip-path="url(#hc)">
+<rect width="1024" height="1024" fill="url(#hbg)"/>
+<circle cx="512" cy="660" r="190" fill="#ffb84a" opacity=".45" filter="url(#hblur)"/>
+<path d="M370,250 L654,250 C654,390 540,450 528,512 C540,574 654,634 654,774 L370,774 C370,634 484,574 496,512 C484,450 370,390 370,250 Z" fill="#bfe8ff" opacity=".22" stroke="#e8f8ff" stroke-width="8"/>
+<path d="M405,330 L619,330 C600,400 540,440 516,500 L508,500 C484,440 424,400 405,330 Z" fill="#ffd36a"/>
+<path d="M509,500 L515,500 L515,740 L509,740 Z" fill="#ffe9a0" filter="url(#hglow)"/>
+<path d="M385,750 C400,680 470,640 512,636 C554,640 624,680 639,750 Z" fill="#ffc94a" filter="url(#hglow)"/>
+<path d="M392,290 C400,360 450,410 480,450" stroke="#ffffff" stroke-width="12" opacity=".45" fill="none" stroke-linecap="round"/>
+<rect x="330" y="214" width="364" height="52" rx="14" fill="url(#hgoldv)" stroke="#3a2408" stroke-width="6"/>
+<rect x="330" y="758" width="364" height="52" rx="14" fill="url(#hgoldv)" stroke="#3a2408" stroke-width="6"/>
+<rect x="346" y="262" width="26" height="500" rx="8" fill="url(#hgold)" stroke="#3a2408" stroke-width="5"/>
+<rect x="652" y="262" width="26" height="500" rx="8" fill="url(#hgold)" stroke="#3a2408" stroke-width="5"/>
+<path transform="translate(300,400) scale(0.9)" d="M0,-30 L7,-7 L30,0 L7,7 L0,30 L-7,7 L-30,0 L-7,-7 Z" fill="#fff8e0"/><path transform="translate(740,330) scale(0.7)" d="M0,-30 L7,-7 L30,0 L7,7 L0,30 L-7,7 L-30,0 L-7,-7 Z" fill="#fff8e0"/><path transform="translate(720,640) scale(1.1)" d="M0,-30 L7,-7 L30,0 L7,7 L0,30 L-7,7 L-30,0 L-7,-7 Z" fill="#fff8e0"/>
+<rect width="1024" height="1024" fill="#000" filter="url(#htex)" opacity=".45"/>
+<path d="M512,512 L1085.4,913.5 A700,700 0 1 1 512.0,-188.0 Z" fill="#000" opacity=".66"/>
+<path d="M512,512 L1085.4,913.5" stroke="#fff6c8" stroke-width="22" opacity=".8" filter="url(#hsoft)"/>
+<path d="M512,512 L1085.4,913.5" stroke="#fffbe8" stroke-width="7"/>
+</g>
+<rect x="168" y="168" width="688" height="688" rx="18" fill="none" stroke="#000" stroke-width="10" opacity=".7"/>
+<rect x="160" y="160" width="704" height="704" rx="24" fill="none" stroke="url(#hgold)" stroke-width="8"/>
+</svg>

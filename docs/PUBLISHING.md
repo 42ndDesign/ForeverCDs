@@ -7,6 +7,7 @@ packager builds the zip, creates a GitHub release and uploads to CurseForge.
 
 1. https://authors.curseforge.com → **Create Project** → World of Warcraft → Addons.
    - Name: **ForeverCDs** (distinct from "Forever Cooldowns", which uses `/fcd`)
+   - Logo: `assets/avatar-1024.png` (source: `assets/avatar.svg`)
    - Summary and description: `docs/CURSEFORGE_DESCRIPTION.md`
    - Categories: Unit Frames / Healer, Raid Frames; License: MIT
    - Source: https://github.com/42ndDesign/ForeverCDs
@@ -17,8 +18,26 @@ packager builds the zip, creates a GitHub release and uploads to CurseForge.
 5. On CurseForge, check the file's game version is **Forever**. If the packager couldn't map
    interface 16001, set it by hand or add `args: -g 1.60.1` to the packager step.
 
+## Listing copy
+
+The CurseForge listing has no copy in the packaged zip, so the repo is the record. Each piece lives here:
+
+| Piece | Where it lives | Where it goes |
+|---|---|---|
+| Summary (max ~200 chars) | `docs/CURSEFORGE_DESCRIPTION.md`, first line | CurseForge project → Summary |
+| Description | `docs/CURSEFORGE_DESCRIPTION.md`, below the `---` | CurseForge project → Description (Markdown) |
+| In-game notes | `## Notes:` in **both** TOCs | Addon list tooltip, CurseForge app |
+| Logo | `assets/avatar-1024.png`, source `assets/avatar.svg` | CurseForge project → Avatar |
+| Screenshots | not made yet: window, party-frame icons, options panel | CurseForge project → Images |
+
+The summary, TOC notes, description intro and README intro say the same thing in different lengths.
+They describe what the addon does today: which spells, where it shows them, and that only you need it.
+Leave out how it started (one spell, one class, one bug). When a feature lands, update all four.
+
 ## Each release
 
 1. New section at the top of `CHANGELOG.md`.
-2. Commit, `git tag vX.Y.Z`, `git push origin main --tags`.
-3. Never tag a test build: tags publish to CurseForge.
+2. If the release adds or changes a feature, update the listing copy above, then paste the new
+   summary and description into CurseForge. The packager uploads the file only, never the listing.
+3. Commit, `git tag vX.Y.Z`, `git push origin main --tags`.
+4. Never tag a test build: tags publish to CurseForge.
