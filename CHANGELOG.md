@@ -1,5 +1,10 @@
 # ForeverCDs
 
+## v0.1.4-beta
+
+- Your own talent spells are read from your spellbook, so you're no longer listed for Mana Tide Totem or Power Infusion without the talent. Since v0.1.2 you could stay "not checked yet" forever.
+- If your own talents can't be read at login, ForeverCDs tries again every 30 seconds until it gets a full read.
+
 ## v0.1.3-beta
 
 - Spell icons show again in the window, on party frames and in the options panel. Every icon had been showing as a question mark.
