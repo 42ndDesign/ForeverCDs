@@ -1,8 +1,9 @@
 -- ForeverCDs: roster and cooldown records. No UI code here, so this file can be
 -- tested outside the game with a stubbed API (see tests/).
 --
--- Sources only write records; a seen cast (or the player's own client) always
--- wins over sync, and sync wins over an aura sighting or an assumption.
+-- Sources only write records. A seen cast, the player's own client and a
+-- member's own report (sync) rank the same, so the newest wins; an aura sighting
+-- only fills an empty slot.
 local _, ns = ...
 local T = {}
 ns.Tracker = T
@@ -18,7 +19,7 @@ T.DEDUPE = 0.75      -- same GUID + spell within this many seconds counts once
 T.RETAIN = 1800      -- keep records of players who left for 30 minutes, or until their last cooldown ends
 T.SELF_GRACE = 2     -- ignore "no cooldown" from our own client this soon after a cast
 
-local RANK = { cast = 3, self = 3, sync = 2, aura = 1 }
+local RANK = { cast = 3, self = 3, sync = 3, aura = 1 }
 
 local function spells() return (ns.db and ns.db.spells) or {} end
 
@@ -141,17 +142,30 @@ local function talentOK(guid, spell)
 end
 T.TalentOK = talentOK
 
--- Members who can cast this spell: class match, level >= minLevel (when known)
--- and, for talent spells, not known to lack the talent.
+-- What the member's own ForeverCDs reports beats any guess: a member who says
+-- they lack the spell is hidden (unless a cooldown is running), one who says they
+-- have it is shown.
+local function reportedOK(guid, spell)
+  local known = ns.Sync and ns.Sync.Known and ns.Sync.Known(guid, spell.key)
+  if known == nil then return nil end
+  if known then return true end
+  return running(ns.cds[guid] and ns.cds[guid][spell.key], ns.Now()) and true or false
+end
+
+-- Members who can cast this spell: class match, then their own report if they
+-- sent one, else level >= minLevel (when known) and, for talent spells, not
+-- known to lack the talent.
 function T.Eligible(spell)
   local list = {}
   local showSelf = not ns.db or ns.db.show == nil or ns.db.show.self ~= false
   for guid, m in pairs(ns.roster) do
-    if m.class == spell.class
-      and (not spell.minLevel or not m.level or m.level >= spell.minLevel)
-      and (showSelf or guid ~= T.playerGUID)
-      and talentOK(guid, spell) then
-      list[#list + 1] = guid
+    if m.class == spell.class and (showSelf or guid ~= T.playerGUID) then
+      local ok
+      if guid ~= T.playerGUID then ok = reportedOK(guid, spell) end
+      if ok == nil then
+        ok = (not spell.minLevel or not m.level or m.level >= spell.minLevel) and talentOK(guid, spell)
+      end
+      if ok then list[#list + 1] = guid end
     end
   end
   return list
@@ -201,40 +215,50 @@ function T.OnCast(unit, castGUID, spellID)
   if not unitOK and not ns.debug then return end
   local idSecret = ns.isSecret(spellID)
   local id = ns.plain(spellID, "number")
-  local name
+  local name, nameSecret
   if id then name = ns.Spells.NameOf(id)
   elseif idSecret and C_Spell and C_Spell.GetSpellName then
-    name = ns.plain(ns.safe(C_Spell.GetSpellName, spellID), "string")
+    local raw = ns.safe(C_Spell.GetSpellName, spellID)
+    nameSecret = ns.isSecret(raw)
+    name = ns.plain(raw, "string")
   end
   local guid = unitOK and T.GUIDForUnit(unit) or nil
 
   if ns.debug then
-    ns.Debug(("cast unit=%s guid=%s id=%s name=%s secret:%s%s"):format(
+    local combat = ns.plain(ns.safe(UnitAffectingCombat, "player"), "boolean")
+    ns.Debug(("cast unit=%s guid=%s id=%s name=%s combat=%s secret:%s%s%s%s"):format(
       ns.isSecret(unit) and "<secret>" or tostring(unit),
       tostring(guid or (unitOK and "<secret/nil>" or "-")),
       idSecret and "<secret>" or tostring(spellID),
-      tostring(name or "?"),
+      nameSecret and "<secret>" or tostring(name or "?"),
+      combat == nil and "?" or (combat and "yes" or "no"),
       idSecret and " id" or "",
+      nameSecret and " name" or "",
+      ns.isSecret(castGUID) and " castGUID" or "",
       (unitOK and not guid) and " guid" or ""))
   end
 
   if not unitOK or not guid then return end
   if not id and not name then return end
-  local spell = ns.Spells.Find(spells(), id, name)
+  -- Our own casts count for every spell of our class: sync reports them all.
+  local own = guid == T.playerGUID
+  local spell = ns.Spells.Find(spells(), id, name, own and ns.roster[guid] and ns.roster[guid].class or nil)
   if not spell then return end
 
   local now = ns.Now()
   local dk = guid .. "\0" .. spell.key
-  if T.recent[dk] and now - T.recent[dk] < T.DEDUPE then return end
+  if T.recent[dk] and now - T.recent[dk] < T.DEDUPE then ns.Debug("  -> " .. spell.key .. ": repeat, ignored"); return end
   T.recent[dk] = now
 
   local duration = ns.Spells.Cooldown(spell)
-  if duration <= 0 then return end
+  if duration <= 0 then ns.Debug("  -> " .. spell.key .. ": no cooldown length"); return end
+  ns.Debug(("  -> tracked %s, %d s"):format(spell.key, duration))
   if ns.Talents then ns.Talents.NoteCast(guid, spell) end
   T.Start(guid, spell.key, now, duration, "cast")
-  T.pendingCast[dk] = { t = now, guid = guid, spell = spell }
-  if T.onCast then T.onCast(guid, spell) end
-  if guid == T.playerGUID and T.onOwnCast then T.onOwnCast(spell, duration) end
+  if spell.enabled then
+    T.pendingCast[dk] = { t = now, guid = guid, spell = spell }
+    if T.onCast then T.onCast(guid, spell) end
+  end
   return spell
 end
 
@@ -249,7 +273,7 @@ function T.PollSelf()
   myClass = ns.plain(myClass, "string") or (m and m.class)
   local now = ns.Now()
   for key, spell in pairs(spells()) do
-    if type(spell) == "table" and spell.enabled and spell.class == myClass then
+    if type(spell) == "table" and spell.class == myClass then
       for _, id in ipairs(spell.ids or {}) do
         local known = ns.safe(IsPlayerSpell, id)
         if known == nil and IsSpellKnown then known = ns.safe(IsSpellKnown, id) end
@@ -296,11 +320,21 @@ function T.ScanAuras(unit)
   if not C_UnitAuras or not C_UnitAuras.GetAuraDataByIndex then return end
   local targetGUID = T.GUIDForUnit(unit)
   local now = ns.Now()
+  local hidden = ns.debug and {} or nil
   for i = 1, 40 do
     local aura = ns.safe(C_UnitAuras.GetAuraDataByIndex, unit, i, "HELPFUL")
-    if ns.isSecret(aura) or type(aura) ~= "table" then break end
+    if ns.isSecret(aura) then if hidden then hidden[#hidden + 1] = i .. ":aura" end break end
+    if type(aura) ~= "table" then break end
     local id = ns.field(aura, "spellId", "number")
     local name = ns.field(aura, "name", "string")
+    if hidden then
+      local f = ""
+      for _, k in ipairs({ "spellId", "name", "sourceUnit", "expirationTime", "duration" }) do
+        local ok, v = pcall(function() return aura[k] end)
+        if ok and ns.isSecret(v) then f = f .. "," .. k end
+      end
+      if f ~= "" then hidden[#hidden + 1] = i .. ":" .. f:sub(2) end
+    end
     local spell = (id or name) and ns.Spells.Find(spells(), id, name)
     if spell then
       local srcUnit = ns.field(aura, "sourceUnit", "string")
@@ -318,6 +352,16 @@ function T.ScanAuras(unit)
           p.target = (m and m.name) or ns.plain(ns.safe(UnitName, unit), "string")
         end
       end
+    end
+  end
+  -- Debug: which buff fields this client hides, at most once per unit every 5 s.
+  if hidden and #hidden > 0 then
+    T.auraLogged = T.auraLogged or {}
+    if not T.auraLogged[unit] or now - T.auraLogged[unit] >= 5 then
+      T.auraLogged[unit] = now
+      local combat = ns.plain(ns.safe(UnitAffectingCombat, "player"), "boolean")
+      ns.Debug(("aura unit=%s combat=%s hidden %s"):format(unit,
+        combat == nil and "?" or (combat and "yes" or "no"), table.concat(hidden, " ")))
     end
   end
 end
@@ -388,6 +432,6 @@ end
 
 function T.Reset()
   ns.roster, ns.cds = {}, {}
-  T.unitGUID, T.leftAt, T.recent, T.pendingCast = {}, {}, {}, {}
+  T.unitGUID, T.leftAt, T.recent, T.pendingCast, T.auraLogged = {}, {}, {}, {}, {}
   T.playerGUID = nil
 end

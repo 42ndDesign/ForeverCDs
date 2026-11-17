@@ -1,6 +1,6 @@
 <!-- Paste into the CurseForge project's Description (Markdown). Update it with each release that adds or changes a feature. -->
 
-**Summary:** Tracks your party and raid's cooldowns: Innervate, Rebirth, Lay on Hands, Power Infusion or any spell you add. Shows them in a movable window or as icons on your unit frames. Only you need it.
+**Summary:** Tracks your party and raid's cooldowns: Innervate, Rebirth, Lay on Hands, Power Infusion or any spell you add. Group members who also run it share their cooldowns, so you see them even in combat.
 
 ---
 
@@ -8,14 +8,23 @@
 
 **Know who has their big cooldown ready before you ask.**
 
-ForeverCDs tracks group cooldowns in WoW: Forever, in party and in raid up to 40. It shows each one as ready, assumed ready, or counting down, in a window or right on your party frames. Nobody else in the group needs it installed.
+ForeverCDs tracks group cooldowns in WoW: Forever, in party and in raid up to 40. It shows each one as ready, assumed ready, or counting down, in a window or right on your party frames.
+
+## Best with your guild
+
+Forever hides other players' spells from addons during combat, and that's when big cooldowns get used. Each player's own client can still read their own cooldowns, so ForeverCDs users share theirs with each other. Get your healers and paladins to install it, and you'll see their Lay on Hands, Rebirth and Innervate count down, even when it was used mid-fight.
+
+- Sharing is on by default. Each player reports every tracked spell of their class, even ones they don't track themselves.
+- If a message is blocked, for example during a boss fight, it's sent once it gets through, with the right time left.
+- `/fcds sync status` shows who in your group runs it.
+- Group members without ForeverCDs still show. Their casts are only seen out of combat, so they're often marked *assumed ready*.
 
 ## What it tracks
 
 - Innervate is on by default. Presets you can turn on: Rebirth, Tranquility, Mana Tide Totem, Blessing of Protection, Lay on Hands, Divine Intervention, Fear Ward, Power Infusion and Soulstone Resurrection.
 - Add any other spell by name or ID, and set your own cooldown length for any spell.
 - Every group member whose class can cast the spell, so a feral druid's Innervate counts.
-- Talent spells like Mana Tide Totem and Power Infusion are hidden for players who don't have the talent. ForeverCDs checks with a quiet inspect out of combat, one player every 2 seconds. Anyone it hasn't checked yet, or couldn't read fully, stays listed, and a seen cast always counts. `/fcds talents` shows the results.
+- Talent spells like Mana Tide Totem and Power Infusion are hidden for players who don't have the talent. A ForeverCDs user reports this directly. For others, ForeverCDs checks with a quiet inspect out of combat, one player every 2 seconds. Anyone it hasn't checked yet, or couldn't read fully, stays listed, and a seen cast always counts. `/fcds talents` shows the inspect results.
 - A cooldown ForeverCDs hasn't seen start shows as assumed ready with a `?` mark. It never guesses "Ready".
 - Running timers survive `/reload` and relog.
 
@@ -28,7 +37,6 @@ ForeverCDs tracks group cooldowns in WoW: Forever, in party and in raid up to 40
 
 - **Ready alert.** A chat line, plus an optional sound, when a cooldown comes back. Limit it to the players you care about, or leave it for everyone.
 - **Cast alert.** A chat line when someone casts a tracked spell, naming the target when the buff shows up.
-- **Sync.** Optional. Players running ForeverCDs share their own casts, which fills gaps when a caster is out of range.
 
 ## Options
 
@@ -42,13 +50,14 @@ Type `/fcds`, or go to Esc → Options → AddOns → ForeverCDs. The panel has 
 | `/fcds remove <spell>` | Stop tracking a spell |
 | `/fcds cd <spell> <seconds>` | Set your own cooldown length (`0` goes back to the default) |
 | `/fcds party window` / `frames` | Show party cooldowns in the window or on party frames |
+| `/fcds sync status` | Which group members run ForeverCDs |
 | `/fcds lock` / `unlock` | Lock or unlock the window |
 | `/fcds debug` | Log every group cast, for bug reports |
 | `/fcds help` | Every command |
 
 ## Built for Forever's addon rules
 
-ForeverCDs never touches the combat log. It reads group spellcast events, your own cooldowns, and tracked buffs it sees on group members, and checks every value for Forever's secret values before using it.
+ForeverCDs never touches the combat log. It reads cooldowns shared by other ForeverCDs users, group spellcast events, your own cooldowns, and tracked buffs it sees on group members. It checks every value for Forever's secret values before using it, and doesn't try to get around them.
 
 ## Feedback
 

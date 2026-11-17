@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: ForeverCDs
-## Notes: Tracks your party and raid's cooldowns, like Innervate, Rebirth and Lay on Hands, plus any spell you add. Shows them in a window or on your unit frames. Only you need it installed.
+## Notes: Tracks your group's cooldowns, like Innervate, Rebirth and Lay on Hands, plus any spell you add. Group members who also run it share their cooldowns, so you see them even in combat.
 ## Author: 42nd Design
 ## Version: @project-version@
 ## IconTexture: 136048

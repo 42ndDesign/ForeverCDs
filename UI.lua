@@ -252,7 +252,10 @@ local function sourceText(e, now)
   local src = e.rec.source
   if src == "self" then return "your own cooldown" end
   if src == "aura" then return "buff seen, cast about " .. ago .. " ago" end
-  if src == "sync" then return "synced, cast " .. ago .. " ago" end
+  if src == "sync" then
+    if (e.rec.duration or 0) <= 0 then return "ready, from their ForeverCDs" end
+    return "from their ForeverCDs, cast " .. ago .. " ago"
+  end
   return "seen cast " .. ago .. " ago"
 end
 

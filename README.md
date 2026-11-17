@@ -3,13 +3,20 @@
 Tracks group cooldowns in **World of Warcraft: Forever**: Innervate, Rebirth, Lay on Hands, Power Infusion
 or any spell you add, in party and raid. Shows them in a movable window or as icons on your unit frames.
 
-- Tracks **every** group member whose class can cast a tracked spell, so a feral druid's Innervate counts. Talent spells (Mana Tide Totem, Power Infusion) are checked by an automatic inspect out of combat, and players without the talent are hidden. `/fcds talents` lists the results.
-- Works in party and raid (up to 40). **Only you need the addon**: it reads group cast events, your own cooldowns and buffs it sees.
+**Best with your guild or regular group.** Forever hides other players' spells from addons during
+combat, and big cooldowns are almost always used in combat. Each player's own client can still read
+their own cooldowns, so group members who run ForeverCDs share theirs. Get your healers and
+paladins to install it.
+
+- **Sharing between ForeverCDs users** is on by default. Each player reports every tracked spell of their class, whether or not they track it themselves: time left, ready, or "I don't have this spell". If a message is blocked, for example during a boss fight, it is sent once it gets through, with the right time left. `/fcds sync status` shows who in your group runs it.
+- For group members without ForeverCDs, casts are only seen out of combat. Those players still show, as *assumed ready* until a cast is seen.
+- Tracks **every** group member whose class can cast a tracked spell, so a feral druid's Innervate counts. Talent spells (Mana Tide Totem, Power Infusion) are checked by an automatic inspect out of combat, and players without the talent are hidden. A player who runs ForeverCDs reports this directly. `/fcds talents` lists the inspect results.
+- Works in party and raid (up to 40).
 - If it hasn't seen a cooldown start, it says so: those show as *assumed ready* with a `?` mark, never as plain "Ready".
 - Default list is Innervate only. Presets you can turn on: Rebirth, Tranquility, Mana Tide Totem, Blessing of Protection, Lay on Hands, Divine Intervention, Fear Ward, Power Infusion, Soulstone Resurrection. Add any other spell with `/fcds add`.
 - **Window mode** (a movable list), or in a party, **frame mode**: small icons attached to each member's party frame. Works with Blizzard party frames, ForeverUnitFrames, ElvUI, Shadowed UF, Cell, Grid2, and most other unit-frame addons. Raids always use the window.
 - Running cooldowns survive `/reload` and relog.
-- Optional ready and cast alerts, and optional addon-message sync between players who run it.
+- Optional ready and cast alerts.
 
 <!-- Screenshots: window mode, frame mode, tooltip -->
 
@@ -35,8 +42,10 @@ or any spell you add, in party and raid. Shows them in a movable window or as ic
 | `/fcds lock` / `unlock` | Lock or unlock the window |
 | `/fcds test` | Toggle test mode with simulated members and timers |
 | `/fcds reset` | Reset position, options, talent results and the alert player list; keep the spell list |
-| `/fcds sync on` / `off` | Addon-message sync (off by default) |
-| `/fcds debug` | Log every group cast event: unit, GUID, spell ID, name, and which fields were secret |
+| `/fcds sync on` / `off` | Share cooldowns with other ForeverCDs users (on by default) |
+| `/fcds sync status` | Which group members run ForeverCDs, and when each was last heard from |
+| `/fcds debug` / `debug clear` | Log every cast event and sync message, saved to SavedVariables on `/reload`; `clear` empties the log |
+| `/fcds secrecy` | Diagnostic: how secret the client says each tracked spell and group member is |
 | `/fcds set <option> <value>` | Set any panel option; `/fcds options` lists them |
 | `/fcds alert players <names>` / `clear` | Limit alerts to these players |
 | `/fcds talents` | Who has each talent spell (Mana Tide Totem, Power Infusion), and when they were checked |
@@ -46,12 +55,14 @@ or any spell you add, in party and raid. Shows them in a movable window or as ic
 
 ## How it detects casts
 
-1. **Group cast events** (`UNIT_SPELLCAST_SUCCEEDED`) for `player`, `party1-4`, `raid1-40`. Duplicates for the same player and spell within 0.75 s count once.
-2. **Your own cooldown** from `C_Spell.GetSpellCooldown`, when it is readable and not just the GCD.
-3. **Buff sighting**: a tracked buff on a group member, with a readable caster, starts that caster's timer if none is running.
-4. **Sync** (optional): players running ForeverCDs broadcast their own casts on the `FCDS` prefix.
+On Forever, every tracked spell is *contextually secret*: in combat, another player's cast event carries a hidden spell ID and name, and their buffs can be hidden too. Your own casts are always readable.
 
-A seen cast always wins over sync, and sync wins over a buff sighting or an assumption. ForeverCDs never registers the combat log, and checks every value with `issecretvalue` before using it.
+1. **Sync**, on the `FCDS` addon-message prefix. Each player sends `H|2|key=value,...` for every tracked spell of their class (seconds left, `0` ready, `?` unknown, `-` not known) when it changes, every 2 minutes, and in reply to `R|2`, which a player sends on joining a group or after `/reload`. Replies wait 1 to 3 s at random. A refused send is retried every 5 s, and the time left is worked out at send time. The v0.1 `C|key|seconds` message is still accepted.
+2. **Group cast events** (`UNIT_SPELLCAST_SUCCEEDED`) for `player`, `party1-4`, `raid1-40`, when the spell is readable. Duplicates for the same player and spell within 0.75 s count once.
+3. **Your own cooldown** from `C_Spell.GetSpellCooldown`, when it is readable and not just the GCD.
+4. **Buff sighting**: a tracked buff on a group member, with a readable caster, starts that caster's timer if none is running.
+
+A member's own report, a seen cast and your own cooldown rank the same, so the newest wins; a buff sighting only fills an empty slot. A member's report that they don't know a spell hides them for it. ForeverCDs never registers the combat log, and checks every value with `issecretvalue` before using it.
 
 ## Frame mode and unit-frame addons
 

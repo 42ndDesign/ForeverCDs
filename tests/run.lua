@@ -50,6 +50,9 @@ C_Spell = {
   GetSpellCooldown = function() return nil end,
 }
 C_UnitAuras = { GetAuraDataByIndex = function(u, i) return auras[u] and auras[u][i] end }
+local sent, sendResult = {}, 0   -- addon messages; 0 = Success, anything else is refused
+C_ChatInfo = { SendAddonMessage = function(prefix, msg, ch) sent[#sent + 1] = { prefix, msg, ch }; return sendResult end }
+Enum = { SendAddonMessageResult = { Success = 0, Throttled = 3 } }
 
 local ns = {}
 for _, f in ipairs({ "Util.lua", "Spells.lua", "Tracker.lua", "Talents.lua", "Sync.lua" }) do
@@ -64,6 +67,7 @@ local function freshDB()
   Spells.FillPresets(ns.db.spells)
   Spells.ClearCache()
   T.Reset()
+  if ns.Sync then ns.Sync.Reset() end
 end
 
 local function party(list)
@@ -188,6 +192,43 @@ test("secret spell id with secret name changes nothing", function()
   eq(T.GetState(DRU.guid, "innervate"), "assumed")
 end)
 
+test("debug log saves every cast event, secrets marked, capped", function()
+  freshDB()
+  party({ player = ME, party1 = DRU })
+  ns.debug = true
+  T.OnCast("nameplate1", SECRET, SECRET)
+  T.OnCast("party1", "c", 29166)
+  local log = ns.db.debugLog
+  eq(#log, 3)
+  assert(log[1]:find("unit=nameplate1 guid=- id=<secret> name=<secret>", 1, true), log[1])
+  assert(log[1]:find("secret: id name castGUID", 1, true), log[1])
+  assert(log[2]:find("unit=party1 guid=Player-1-DRU id=29166 name=Innervate", 1, true), log[2])
+  assert(log[3]:find("-> tracked innervate, 360 s", 1, true), log[3])
+  for _ = 1, ns.DEBUG_LOG_MAX + 5 do ns.Debug("x") end
+  eq(#ns.db.debugLog, ns.DEBUG_LOG_MAX)
+  ns.debug = false
+  ns.Debug("off")
+  eq(ns.db.debugLog[#ns.db.debugLog], "x", "nothing logged while off")
+end)
+
+test("debug log names hidden buff fields, once per unit per 5 s", function()
+  freshDB()
+  party({ player = ME, party1 = DRU })
+  ns.debug = true
+  auras.party1 = { { spellId = SECRET, name = SECRET, sourceUnit = "party1", expirationTime = 5, duration = 10 } }
+  T.ScanAuras("party1")
+  T.ScanAuras("party1")
+  local log = ns.db.debugLog
+  eq(#log, 1)
+  assert(log[1]:find("aura unit=party1 combat=? hidden 1:spellId,name", 1, true), log[1])
+  auras.party1 = { SECRET }
+  clock = clock + 6
+  T.ScanAuras("party1")
+  assert(ns.db.debugLog[2]:find("hidden 1:aura", 1, true), ns.db.debugLog[2])
+  auras.party1 = nil
+  ns.debug = false
+end)
+
 test("secret guid changes nothing", function()
   freshDB()
   party({ player = ME, party1 = DRU })
@@ -243,7 +284,7 @@ test("secret aura fields are skipped", function()
   auras = {}
 end)
 
-test("sync beats an assumption and an aura, never a cast", function()
+test("a member's own report and a seen cast rank the same: newest wins", function()
   freshDB()
   party({ player = ME, party1 = DRU })
   eq(T.OnSync(DRU.guid, "innervate", 100), true)
@@ -251,8 +292,9 @@ test("sync beats an assumption and an aura, never a cast", function()
   near(select(2, T.GetState(DRU.guid, "innervate")), 100)
   clock = clock + 1
   T.OnCast("party1", "c", 29166)
-  eq(T.OnSync(DRU.guid, "innervate", 50), false)
   eq(ns.cds[DRU.guid].innervate.source, "cast")
+  eq(T.OnSync(DRU.guid, "innervate", 0), true, "their client says ready")
+  eq(T.GetState(DRU.guid, "innervate"), "ready")
 end)
 
 test("sync messages parse and validate", function()
@@ -632,6 +674,154 @@ test("talent check off shows everyone", function()
   TL.Tick(); inspected = SHB.guid; TL.OnInspectReady(SHB.guid)
   ns.db.talentCheck = false
   eq(#T.Eligible(ns.db.spells.manatidetotem), 1)
+end)
+
+
+---------------------------------------------------------------------------
+-- Sync
+---------------------------------------------------------------------------
+local Sy = ns.Sync
+local PAL = { guid = "Player-1-PAL", name = "Light", class = "PALADIN", level = 60 }
+
+local function syncSetup(me)
+  freshDB()
+  sent, sendResult = {}, 0
+  party({ player = me or ME, party1 = DRU, party2 = PAL })
+end
+local function sentKinds()
+  local out = {}
+  for _, m in ipairs(sent) do out[#out + 1] = m[2]:sub(1, 1) end
+  return table.concat(out)
+end
+
+test("sync messages decode and reject junk", function()
+  local m = Sy.Decode("H|2|layonhands=1234,divineintervention=-,blessingofprotection=?,bad=99999,x y=1")
+  eq(m.kind, "H"); eq(m.proto, 2); eq(#m.entries, 3)
+  eq(m.entries[1][1], "layonhands"); eq(m.entries[1][2], 1234)
+  eq(m.entries[2][2], "-"); eq(m.entries[3][2], "?")
+  eq(Sy.Decode("R|2").kind, "R")
+  eq(Sy.Decode("C|innervate|30").kind, "C")
+  eq(#Sy.Decode("H|2|").entries, 0)
+  eq(Sy.Decode("Z|2"), nil)
+  eq(Sy.Decode(string.rep("x", 300)), nil)
+end)
+
+test("hello splits to fit 255 bytes and round-trips", function()
+  local entries = {}
+  for i = 1, 30 do entries[i] = { "customspellnumber" .. i, i * 10 } end
+  local msgs = Sy.Encode(entries)
+  assert(#msgs > 1, "split")
+  local back = {}
+  for _, msg in ipairs(msgs) do
+    assert(#msg <= 255, #msg)
+    for _, e in ipairs(Sy.Decode(msg).entries) do back[#back + 1] = e end
+  end
+  eq(#back, 30); eq(back[30][1], "customspellnumber30"); eq(back[30][2], 300)
+end)
+
+test("own state covers every spell of our class, switched on or not", function()
+  local me = { guid = "Player-1-ME2", name = "Me", class = "PALADIN", level = 60, known = { [633] = true, [1022] = true } }
+  syncSetup(me)
+  eq(ns.db.spells.layonhands.enabled, false, "default: off")
+  T.OnCast("player", "c", 633)
+  local entries = Sy.OwnState()
+  local got = {}
+  for _, e in ipairs(entries) do got[e[1]] = e[2] end
+  eq(got.layonhands, 3600, "own cast recorded although switched off")
+  eq(got.blessingofprotection, "?", "known, never seen")
+  eq(got.divineintervention, "-", "not in the spellbook")
+  eq(got.innervate, nil, "other classes' spells left out")
+end)
+
+test("joining asks once, sends state on change, heartbeat, not otherwise", function()
+  local me = { guid = "Player-1-ME2", name = "Me", class = "PALADIN", level = 60, known = { [633] = true } }
+  syncSetup(me)
+  Sy.Tick(clock)
+  Sy.Tick(clock + 1)
+  eq(sentKinds(), "HR", "our state, then a request for theirs")
+  Sy.Tick(clock + 2)
+  eq(#sent, 2, "nothing new")
+  T.OnCast("player", "c", 633)
+  Sy.Tick(clock + 3)
+  eq(#sent, 3); assert(sent[3][2]:find("layonhands=3597", 1, true), sent[3][2])
+  eq(sent[3][3], "PARTY")
+  Sy.Tick(clock + 3 + Sy.HEARTBEAT + 1)
+  eq(#sent, 4, "heartbeat")
+end)
+
+test("a refused send is retried with the time left at retry", function()
+  local me = { guid = "Player-1-ME2", name = "Me", class = "PALADIN", level = 60, known = { [633] = true } }
+  syncSetup(me)
+  Sy.Tick(clock); Sy.Tick(clock + 1)
+  T.OnCast("player", "c", 633)
+  sendResult = 3
+  local n = #sent
+  Sy.Tick(clock)
+  eq(#sent, n + 1, "tried")
+  Sy.Tick(clock + 2)
+  eq(#sent, n + 1, "waits before retrying")
+  sendResult = 0
+  Sy.Tick(clock + 60)
+  assert(sent[#sent][2]:find("layonhands=3540", 1, true), sent[#sent][2])
+  Sy.Tick(clock + 61)
+  eq(#sent, n + 2, "delivered once")
+end)
+
+test("a request is answered within a few seconds", function()
+  local me = { guid = "Player-1-ME2", name = "Me", class = "PALADIN", level = 60, known = { [633] = true } }
+  syncSetup(me)
+  Sy.Tick(clock); Sy.Tick(clock + 1)
+  local n = #sent
+  Sy.OnMessage("FCDS", "R|2", "PARTY", "Leaf")
+  Sy.Tick(clock + 0.5)
+  eq(#sent, n, "not instantly")
+  Sy.Tick(clock + Sy.REPLY_MAX + 0.1)
+  eq(#sent, n + 1); eq(sent[n + 1][2]:sub(1, 2), "H|")
+end)
+
+test("a member's hello starts timers and hides spells they lack", function()
+  syncSetup()
+  ns.db.spells.layonhands.enabled = true
+  ns.db.spells.divineintervention.enabled = true
+  ns.db.spells.blessingofprotection.enabled = true
+  eq(#T.Eligible(ns.db.spells.divineintervention), 1, "unknown: listed")
+  Sy.OnMessage("FCDS", "H|2|blessingofprotection=0,divineintervention=-,layonhands=1800", "PARTY", "Light")
+  eq(#T.Eligible(ns.db.spells.divineintervention), 0, "says they lack it")
+  local state, left, rec = T.GetState(PAL.guid, "layonhands")
+  eq(state, "cooldown"); near(left, 1800); eq(rec.source, "sync")
+  eq(T.GetState(PAL.guid, "blessingofprotection"), "ready", "reported ready, not assumed")
+  eq(Sy.Known(PAL.guid, "layonhands"), true)
+end)
+
+test("a member who reports a talent spell is listed even if an inspect said no", function()
+  talentDB()
+  party({ player = ME, party1 = SHB })
+  inspectTalents[SHB.guid] = { { 17364, "Stormstrike" } }
+  TL.Tick(); inspected = SHB.guid; TL.OnInspectReady(SHB.guid)
+  eq(#T.Eligible(ns.db.spells.manatidetotem), 0, "inspect says no")
+  Sy.OnMessage("FCDS", "H|2|manatidetotem=0", "PARTY", "Storm")
+  eq(#T.Eligible(ns.db.spells.manatidetotem), 1, "their client says yes")
+end)
+
+test("sync off sends and reads nothing", function()
+  syncSetup()
+  ns.db.sync = false
+  Sy.Tick(clock); Sy.Tick(clock + 1)
+  eq(#sent, 0)
+  ns.db.spells.layonhands.enabled = true
+  Sy.OnMessage("FCDS", "H|2|layonhands=100", "PARTY", "Light")
+  eq(ns.cds[PAL.guid], nil)
+end)
+
+test("solo sends nothing; an old client's cast message still counts", function()
+  freshDB()
+  sent = {}
+  party({ player = ME })
+  Sy.Tick(clock)
+  eq(#sent, 0)
+  party({ player = ME, party1 = DRU })
+  Sy.OnMessage("FCDS", "C|innervate|100", "PARTY", "Leaf")
+  near(select(2, T.GetState(DRU.guid, "innervate")), 100)
 end)
 
 print(("%d passed, %d failed"):format(passed, failed))

@@ -387,7 +387,7 @@ local function buildHeader()
   logo:SetPoint("LEFT", 20, 0)
   local lt = Text(logo, 11, COL.gold, "CENTER"); lt:SetPoint("CENTER"); lt:SetText("CD")
   local title = Text(h, 17, COL.gold); title:SetPoint("TOPLEFT", logo, "TOPRIGHT", 12, 2); title:SetText("ForeverCDs")
-  local sub = Muted(h, "v" .. version() .. " · group cooldowns · only you need it", 11)
+  local sub = Muted(h, "v" .. version() .. " · group cooldowns · shared between ForeverCDs users", 11)
   sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -3)
 
   O.lockBtn = Button(h, "Unlock window", "primary", 120, 30, function()
@@ -1000,7 +1000,7 @@ local function buildAlerts(p)
     return c
   end
   local c3 = smallCard("Share with other ForeverCDs users",
-    "Sends your own casts to the group. Fills gaps when someone is out of range. Best effort: messages can be blocked during boss fights.",
+    "Sends your cooldowns to the group and reads theirs. Forever hides other players' spells in combat, so this is how you see them. Blocked messages are sent once they get through.",
     function(v) set("sync", v) end)
   local c4 = smallCard("Debug log",
     "Prints every group cast: unit, GUID, spell ID, name, and what was secret. Turn on before sending a bug report.",

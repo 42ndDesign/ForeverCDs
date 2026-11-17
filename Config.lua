@@ -3,7 +3,7 @@
 local ADDON, ns = ...
 local T, UI, F, S, Spells, TL = ns.Tracker, ns.UI, ns.Frames, ns.Sync, ns.Spells, ns.Talents
 
-local DB_VERSION = 1
+local DB_VERSION = 2
 
 ns.defaults = {
   version = DB_VERSION,
@@ -17,7 +17,7 @@ ns.defaults = {
   },
   show = { solo = false, party = true, raid = true, self = true },
   alerts = { ready = false, readySound = true, cast = false, players = {} },
-  sync = false,
+  sync = true,
   talentCheck = true,
   talents = {},
   saved = {},
@@ -39,7 +39,10 @@ function ns.InitDB()
   fill(db, ns.defaults)
   if type(db.spells) ~= "table" then db.spells = {} end
   Spells.FillPresets(db.spells)
-  -- Future reshaping goes here, gated on db.version.
+  -- Reshaping, gated on db.version.
+  local v = tonumber(db.version) or 1
+  -- v2: sync became the main way to see other players' cooldowns; on for everyone.
+  if v < 2 then db.sync = true end
   db.version = DB_VERSION
   ns.db = db
 end
@@ -76,7 +79,7 @@ ns.options = {
   { name = "readyalert", path = { "alerts", "ready" },   kind = "bool",   label = "Alert when a cooldown is ready" },
   { name = "readysound", path = { "alerts", "readySound" }, kind = "bool", label = "Play a sound with the ready alert" },
   { name = "castalert",  path = { "alerts", "cast" },    kind = "bool",   label = "Print tracked casts" },
-  { name = "sync",       path = { "sync" },              kind = "bool",   label = "Addon-message sync (best effort)" },
+  { name = "sync",       path = { "sync" },              kind = "bool",   label = "Share cooldowns with other ForeverCDs users" },
   { name = "talents",    path = { "talentCheck" },       kind = "bool",   label = "Check talents by inspecting (out of combat)", apply = function() T.RebuildRoster() end },
 }
 
@@ -142,8 +145,8 @@ local HELP = {
   "/fcds lock | unlock - lock or unlock the window",
   "/fcds test - simulated members and timers",
   "/fcds reset - reset position, options, talent results and alert list; keep the spell list",
-  "/fcds sync on | off - addon-message sync",
-  "/fcds debug - log every group cast event",
+  "/fcds sync on | off | status - share cooldowns with other ForeverCDs users; status lists who runs it",
+  "/fcds debug - log every cast event (saved on /reload; /fcds debug clear empties it)",
   "/fcds talents - who has Mana Tide / Power Infusion (checked by automatic inspect)",
   "/fcds inspect [unit | player | clear] - talent API probe, saved to SavedVariables",
   "/fcds set <option> <value> - any panel option; /fcds options lists them",
@@ -473,6 +476,68 @@ local function cmdTalents()
   if not any then ns.Print("  No group members of a class with an enabled talent spell.") end
 end
 
+-- Diagnostic: how secret the client says each tracked spell and each group unit is.
+-- Output goes to chat and the probe log (saved on /reload).
+local function secrecyName(v)
+  if v == nil then return "nil" end
+  if ns.isSecret(v) then return "<secret>" end
+  local names = Enum and Enum.SecrecyLevel
+  if type(names) == "table" then
+    for k, n in pairs(names) do if n == v then return k end end
+  end
+  return tostring(v)
+end
+
+local function cmdSecrecy()
+  local S = C_Secrets
+  if type(S) ~= "table" then return out("[secrecy] C_Secrets is not available on this client.") end
+  local function call(fn, ...)
+    if type(fn) ~= "function" then return "n/a" end
+    local ok, v = pcall(fn, ...)
+    if not ok then return "error" end
+    return secrecyName(v)
+  end
+  out(("[secrecy] restrictions %s, auras %s, cooldowns %s, in combat %s"):format(
+    call(S.HasSecretRestrictions), call(S.ShouldAurasBeSecret), call(S.ShouldCooldownsBeSecret),
+    v2s(ns.safe(UnitAffectingCombat, "player"))))
+  for _, spell in ipairs(ns.Spells.Sorted(ns.db.spells)) do
+    for _, id in ipairs(spell.ids or {}) do
+      out(("[secrecy] %s %d (%s): cast %s, aura %s, cooldown %s"):format(
+        spell.key, id, v2s(ns.Spells.NameOf(id)),
+        call(S.GetSpellCastSecrecy, id), call(S.GetSpellAuraSecrecy, id), call(S.GetSpellCooldownSecrecy, id)))
+    end
+  end
+  for _, unit in ipairs(T.GroupUnits()) do
+    if unit ~= "player" then
+      out(("[secrecy] %s (%s): identity %s, health max %s, mana %s"):format(unit, v2s(ns.safe(UnitName, unit)),
+        call(S.ShouldUnitIdentityBeSecret, unit), call(S.ShouldUnitHealthMaxBeSecret, unit),
+        call(S.ShouldUnitPowerBeSecret, unit, 0)))
+    end
+  end
+end
+
+local function cmdSyncStatus()
+  if not ns.db.sync then return ns.Print("Sync is off. /fcds sync on turns it on.") end
+  local now, rows = ns.Now(), {}
+  for guid, m in pairs(ns.roster) do
+    if guid ~= T.playerGUID then rows[#rows + 1] = { m.name or guid, S.peers[guid] } end
+  end
+  if #rows == 0 then return ns.Print("Not in a group.") end
+  table.sort(rows, function(a, b) return a[1] < b[1] end)
+  local have = 0
+  for _, r in ipairs(rows) do
+    local p = r[2]
+    if p then
+      have = have + 1
+      ns.Print(("  %s: ForeverCDs, last heard %s ago"):format(r[1], ns.TimeText(now - p.t) ~= "" and ns.TimeText(now - p.t) or "0s"))
+    else
+      ns.Print(("  %s: not heard from (no ForeverCDs, or sync off)"):format(r[1]))
+    end
+  end
+  ns.Print(("%d of %d group members share their cooldowns. Without it, their spells "
+    .. "can only be seen out of combat."):format(have, #rows))
+end
+
 local function onSlash(msg)
   msg = (msg or ""):gsub("^%s+", ""):gsub("%s+$", "")
   local cmd, rest = msg:match("^(%S*)%s*(.*)$")
@@ -501,13 +566,19 @@ local function onSlash(msg)
     ns.Print(cmd == "lock" and "Window locked." or "Window unlocked: drag the blue bar to move it.")
   elseif cmd == "test" then UI.SetTest(not UI.test)
   elseif cmd == "reset" then cmdReset()
+  elseif cmd == "sync" and rest:lower() == "status" then cmdSyncStatus()
   elseif cmd == "sync" then
     local ok, err = setFromText(findOpt("sync"), rest)
     if not ok then return ns.Print("Usage: /fcds sync on | off") end
     ns.Print("Sync " .. fmt(ns.db.sync) .. ".")
   elseif cmd == "debug" then
+    if rest:lower() == "clear" then
+      if ns.db then ns.db.debugLog = nil end
+      return ns.Print("Debug log cleared.")
+    end
     ns.debug = not ns.debug
-    ns.Print("Debug " .. (ns.debug and "on: every group cast is logged." or "off."))
+    if ns.debug then ns.Debug("debug on") end
+    ns.Print("Debug " .. (ns.debug and "on: every cast event is logged and saved on /reload." or "off."))
   elseif cmd == "set" then
     local name, value = rest:match("^(%S+)%s*(.*)$")
     local o = name and findOpt(name:lower())
@@ -526,6 +597,7 @@ local function onSlash(msg)
     if ns.db then ns.db.probeLog = nil end
     ns.Print("Probe log cleared.")
   elseif cmd == "inspect" then cmdInspect(rest)
+  elseif cmd == "secrecy" then cmdSecrecy()
   else printHelp() end
 end
 
@@ -622,11 +694,11 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
     if not ns.db then ns.InitDB() end
     T.onCast = UI.OnCast
     T.onChange = queueChange
-    T.onOwnCast = function(spell, duration) S.Send(spell.key, duration) end
     if ns.RegisterPanel then ns.RegisterPanel() end
     T.RebuildRoster()
     T.Restore(ns.db)
     TL.Start()
+    S.Start()
     started = true
     UI.Start()
     UI.UpdateMode()

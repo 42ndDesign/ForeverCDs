@@ -34,7 +34,7 @@ The CurseForge listing has no copy in the packaged zip, so the repo is the recor
 | Screenshots | not made yet: window, party-frame icons, options panel | CurseForge project → Images |
 
 The summary, TOC notes, description intro and README intro say the same thing in different lengths.
-They describe what the addon does today: which spells, where it shows them, and that only you need it.
+They describe what the addon does today: which spells, where it shows them, and that group members who run it share their cooldowns.
 Leave out how it started (one spell, one class, one bug). When a feature lands, update all four.
 
 ## Each release

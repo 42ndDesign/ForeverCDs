@@ -116,10 +116,13 @@ function Spells.Matches(id, spell, name)
   return false
 end
 
--- First enabled tracked spell matching the cast, or nil.
-function Spells.Find(spells, id, name)
+-- First enabled tracked spell matching the cast, or nil. With class, a spell of
+-- that class matches even when switched off (the player's own, for sync).
+function Spells.Find(spells, id, name, class)
   for _, s in pairs(spells) do
-    if type(s) == "table" and s.enabled and Spells.Matches(id, s, name) then return s end
+    if type(s) == "table" and (s.enabled or (class and s.class == class)) and Spells.Matches(id, s, name) then
+      return s
+    end
   end
   return nil
 end

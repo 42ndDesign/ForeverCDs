@@ -1,5 +1,13 @@
 # ForeverCDs
 
+## v0.2.0-beta
+
+- **Cooldown sharing is now the main way to see other players' cooldowns, and is on for everyone.** Forever hides other players' spells from addons during combat, so a Lay on Hands or Rebirth used mid-fight was never seen. Group members who run ForeverCDs now report their own cooldowns.
+- Each player reports every tracked spell of their class, even ones they don't track themselves: time left, ready, or that they don't have the spell. A player who doesn't have a spell is hidden for it, and one who reports a talent spell is listed even if an inspect said otherwise.
+- Reports go out when something changes, every 2 minutes, and when someone joins or reloads. A blocked message is sent once it gets through, with the right time left.
+- `/fcds sync status` lists which group members run ForeverCDs.
+- `/fcds debug` saves its log to SavedVariables on `/reload` and also logs sync messages; `/fcds debug clear` empties it. `/fcds secrecy` shows how secret the client says each tracked spell is.
+
 ## v0.1.4-beta
 
 - Your own talent spells are read from your spellbook, so you're no longer listed for Mana Tide Totem or Power Infusion without the talent. Since v0.1.2 you could stay "not checked yet" forever.

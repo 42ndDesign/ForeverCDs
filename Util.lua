@@ -87,8 +87,18 @@ end
 
 -- Debug logging (toggled by /fcds debug).
 ns.debug = false
+-- Debug lines go to chat and to ForeverCDsDB.debugLog, which /reload writes to
+-- SavedVariables so they can be read outside the game.
+ns.DEBUG_LOG_MAX = 1500
 function ns.Debug(msg)
-  if ns.debug then ns.Print("|cff999999[debug]|r " .. tostring(msg)) end
+  if not ns.debug then return end
+  ns.Print("|cff999999[debug]|r " .. tostring(msg))
+  if not ns.db then return end
+  local log = ns.db.debugLog
+  if type(log) ~= "table" then log = {}; ns.db.debugLog = log end
+  local stamp = (date and date("%H:%M:%S ")) or ""
+  log[#log + 1] = stamp .. tostring(msg)
+  while #log > ns.DEBUG_LOG_MAX do table.remove(log, 1) end
 end
 
 -- Normalise a spell key: "Mana Tide Totem" -> "manatidetotem".
