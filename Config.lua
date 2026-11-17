@@ -719,6 +719,8 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
       or event == "UNIT_CONNECTION" or event == "UNIT_LEVEL" then
     if started then rosterChanged() end
   elseif event == "PLAYER_REGEN_ENABLED" or event == "EDIT_MODE_LAYOUTS_UPDATED" then
-    if started then F.Update() end
+    if not started then return end
+    F.Update()
+    if event == "PLAYER_REGEN_ENABLED" then T.OnCombatEnd() end
   end
 end)

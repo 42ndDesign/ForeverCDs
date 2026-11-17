@@ -1,5 +1,10 @@
 # ForeverCDs
 
+## v0.2.1-beta
+
+- For group members without ForeverCDs: when a fight ends, their buffs are read again, and Blizzard's damage meter is checked for tracked spells in their healing and damage. Soulstone, Fear Ward and Divine Intervention are caught while the buff is up, and Lay on Hands and Tranquility from the meter. A meter hit starts the timer at the end of the fight, so it may run a little long but never shows ready too early.
+- `/fcds debug` also checks whether spells hidden during a fight can be read after it.
+
 ## v0.2.0-beta
 
 - **Cooldown sharing is now the main way to see other players' cooldowns, and is on for everyone.** Forever hides other players' spells from addons during combat, so a Lay on Hands or Rebirth used mid-fight was never seen. Group members who run ForeverCDs now report their own cooldowns.

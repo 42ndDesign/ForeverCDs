@@ -17,7 +17,7 @@ Forever hides other players' spells from addons during combat, and that's when b
 - Sharing is on by default. Each player reports every tracked spell of their class, even ones they don't track themselves.
 - If a message is blocked, for example during a boss fight, it's sent once it gets through, with the right time left.
 - `/fcds sync status` shows who in your group runs it.
-- Group members without ForeverCDs still show. Their casts are only seen out of combat, so they're often marked *assumed ready*.
+- Group members without ForeverCDs still show. Their casts are seen out of combat, and when a fight ends ForeverCDs checks their buffs and Blizzard's damage meter. That catches Soulstone, Fear Ward and Divine Intervention, plus Lay on Hands and Tranquility from their healing. Rebirth used mid-fight can't be seen, so those players are often marked *assumed ready*.
 
 ## What it tracks
 

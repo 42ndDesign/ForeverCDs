@@ -52,7 +52,20 @@ C_Spell = {
 C_UnitAuras = { GetAuraDataByIndex = function(u, i) return auras[u] and auras[u][i] end }
 local sent, sendResult = {}, 0   -- addon messages; 0 = Success, anything else is refused
 C_ChatInfo = { SendAddonMessage = function(prefix, msg, ch) sent[#sent + 1] = { prefix, msg, ch }; return sendResult end }
-Enum = { SendAddonMessageResult = { Success = 0, Throttled = 3 } }
+Enum = { SendAddonMessageResult = { Success = 0, Throttled = 3 },
+  DamageMeterType = { DamageDone = 0, HealingDone = 2 }, AddOnRestrictionType = { Combat = 0 } }
+local meter = { sessions = { { sessionID = 7 } }, spells = {} }   -- spells[type][guid] = { {spellID, totalAmount} }
+local restricted = 0
+C_RestrictedActions = { GetAddOnRestrictionState = function() return restricted end }
+C_DamageMeter = {
+  GetAvailableCombatSessions = function() return meter.sessions end,
+  GetCombatSessionSourceFromID = function(sid, mt, guid)
+    if meter.secret then return SECRET end
+    local list = {}
+    for _, e in ipairs((meter.spells[mt] or {})[guid] or {}) do list[#list + 1] = { spellID = e[1], totalAmount = e[2] } end
+    return { combatSpells = list }
+  end,
+}
 
 local ns = {}
 for _, f in ipairs({ "Util.lua", "Spells.lua", "Tracker.lua", "Talents.lua", "Sync.lua" }) do
@@ -822,6 +835,88 @@ test("solo sends nothing; an old client's cast message still counts", function()
   party({ player = ME, party1 = DRU })
   Sy.OnMessage("FCDS", "C|innervate|100", "PARTY", "Leaf")
   near(select(2, T.GetState(DRU.guid, "innervate")), 100)
+end)
+
+
+---------------------------------------------------------------------------
+-- After combat
+---------------------------------------------------------------------------
+local function meterSetup()
+  freshDB()
+  ns.db.spells.layonhands.enabled = true
+  ns.db.spells.soulstoneresurrection.enabled = true
+  meter.sessions, meter.spells, meter.secret, restricted = { { sessionID = 7 } }, {}, nil, 0
+  party({ player = ME, party1 = DRU, party2 = PAL })
+end
+
+test("after combat: a heal on the meter starts the timer at the fight's end", function()
+  meterSetup()
+  meter.spells[2] = { [PAL.guid] = { { 25914, 900 }, { 10310, 4000 } } }
+  eq(T.AfterCombat(clock), true)
+  local state, left, rec = T.GetState(PAL.guid, "layonhands")
+  eq(state, "cooldown"); near(left, 3600); eq(rec.source, "meter")
+  clock = clock + 10
+  T.AfterCombat(clock)
+  near(select(2, T.GetState(PAL.guid, "layonhands")), 3590, 0.01, "same total, not restarted")
+end)
+
+test("after combat: a bigger total in the same session is a new use", function()
+  meterSetup()
+  meter.spells[2] = { [PAL.guid] = { { 10310, 4000 } } }
+  T.AfterCombat(clock)
+  clock = clock + 3700
+  T.AfterCombat(clock)
+  eq(T.GetState(PAL.guid, "layonhands"), "ready", "same total: no new use")
+  meter.spells[2][PAL.guid][1][2] = 8000
+  T.AfterCombat(clock)
+  eq(T.GetState(PAL.guid, "layonhands"), "cooldown")
+end)
+
+test("after combat: the meter never replaces a better record or another class", function()
+  meterSetup()
+  T.OnSync(PAL.guid, "layonhands", 100)
+  meter.spells[2] = { [PAL.guid] = { { 10310, 4000 } }, [DRU.guid] = { { 10310, 4000 } } }
+  T.AfterCombat(clock)
+  near(select(2, T.GetState(PAL.guid, "layonhands")), 100, 0.01, "their own report stays")
+  eq(ns.cds[DRU.guid], nil, "a druid can't have Lay on Hands")
+end)
+
+test("after combat: secret meter data waits, restriction is detected", function()
+  meterSetup()
+  meter.secret = true
+  meter.spells[2] = { [PAL.guid] = { { 10310, 4000 } } }
+  eq(T.AfterCombat(clock), false)
+  eq(ns.cds[PAL.guid], nil)
+  restricted = 1
+  eq(T.Restricted(), true)
+  restricted = 0
+  eq(T.Restricted(), false)
+  meter.secret = nil
+  eq(T.AfterCombat(clock), true)
+  eq(T.GetState(PAL.guid, "layonhands"), "cooldown")
+end)
+
+test("after combat: buffs still up are read again", function()
+  meterSetup()
+  local WL = { guid = "Player-1-WL", name = "Lock", class = "WARLOCK", level = 60 }
+  party({ player = ME, party1 = WL })
+  auras.player = { { spellId = 20765, name = "Soulstone Resurrection", sourceUnit = "party1", expirationTime = clock + 1700, duration = 1800 } }
+  T.AfterCombat(clock)
+  local state, left, rec = T.GetState(WL.guid, "soulstoneresurrection")
+  eq(state, "cooldown"); near(left, 1700); eq(rec.source, "aura")
+  auras.player = nil
+end)
+
+test("debug: hidden casts are checked again after combat", function()
+  meterSetup()
+  ns.debug = true
+  T.OnCast("party2", SECRET, SECRET)
+  eq(#T.hiddenCasts, 1)
+  T.AfterCombat(clock)
+  eq(#T.hiddenCasts, 0)
+  local last = ns.db.debugLog[#ns.db.debugLog]
+  assert(last:find("hidden cast by Light", 1, true) and last:find("still secret", 1, true), last)
+  ns.debug = false
 end)
 
 print(("%d passed, %d failed"):format(passed, failed))

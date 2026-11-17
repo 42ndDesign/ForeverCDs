@@ -14,12 +14,14 @@ T.unitGUID = {}      -- [unit] = guid
 T.leftAt = {}        -- [guid] = GetTime() when they left the group
 T.recent = {}        -- [guid .. key] = GetTime() of the last accepted cast
 T.pendingCast = {}   -- [guid .. key] = { t, spell } for cast alerts waiting on a target
+T.meterSeen = {}     -- [session .. guid .. key] = meter total last counted
+T.hiddenCasts = {}   -- debug only: hidden casts from this fight, checked after it
 
 T.DEDUPE = 0.75      -- same GUID + spell within this many seconds counts once
 T.RETAIN = 1800      -- keep records of players who left for 30 minutes, or until their last cooldown ends
 T.SELF_GRACE = 2     -- ignore "no cooldown" from our own client this soon after a cast
 
-local RANK = { cast = 3, self = 3, sync = 3, aura = 1 }
+local RANK = { cast = 3, self = 3, sync = 3, aura = 1, meter = 1 }
 
 local function spells() return (ns.db and ns.db.spells) or {} end
 
@@ -183,8 +185,8 @@ function T.Start(guid, key, start, duration, source)
   local old = ns.cds[guid][key]
   if old and running(old, now) then
     local newRank, oldRank = RANK[source] or 0, RANK[old.source] or 0
-    if source == "aura" then return false end           -- aura only fills an empty slot
-    if newRank < oldRank then return false end           -- sync never beats a seen cast
+    if newRank <= 1 then return false end                -- estimates only fill an empty slot
+    if newRank < oldRank then return false end
   end
   ns.cds[guid][key] = { start = start, duration = duration, source = source }
   if T.onChange then T.onChange() end
@@ -239,7 +241,13 @@ function T.OnCast(unit, castGUID, spellID)
   end
 
   if not unitOK or not guid then return end
-  if not id and not name then return end
+  if not id and not name then
+    -- Debug test: does a hidden spell ID become readable once combat is over?
+    if ns.debug and idSecret and #T.hiddenCasts < 20 then
+      T.hiddenCasts[#T.hiddenCasts + 1] = { t = ns.Now(), guid = guid, id = spellID }
+    end
+    return
+  end
   -- Our own casts count for every spell of our class: sync reports them all.
   local own = guid == T.playerGUID
   local spell = ns.Spells.Find(spells(), id, name, own and ns.roster[guid] and ns.roster[guid].class or nil)
@@ -367,6 +375,102 @@ function T.ScanAuras(unit)
 end
 
 ---------------------------------------------------------------------------
+-- Source 5: after combat, for group members without ForeverCDs
+---------------------------------------------------------------------------
+-- In combat other players' casts and buffs are hidden. Once the combat
+-- restriction lifts: re-read every buff (no UNIT_AURA fires for that), and read
+-- Blizzard's damage meter for the fight, whose per-player breakdown lists the
+-- spells that healed or did damage. A meter hit means "used during that fight":
+-- the timer starts at the fight's end, so it never shows ready too early.
+T.AFTER_TRIES = 20      -- one check a second while the restriction lasts
+
+function T.Restricted()
+  local RA, E = C_RestrictedActions, Enum and Enum.AddOnRestrictionType
+  if RA and RA.GetAddOnRestrictionState and E and E.Combat ~= nil then
+    local st = ns.plain(ns.safe(RA.GetAddOnRestrictionState, E.Combat), "number")
+    if st and st > 0 then return true end
+  end
+  return ns.plain(ns.safe(InCombatLockdown), "boolean") == true
+end
+
+local METER_TYPES = { "HealingDone", "DamageDone" }
+
+-- Returns false while the meter data is still secret (try again later).
+function T.ScanMeter(now)
+  local DM = C_DamageMeter
+  local types = Enum and Enum.DamageMeterType
+  if type(DM) ~= "table" or type(types) ~= "table" or not DM.GetAvailableCombatSessions
+      or not DM.GetCombatSessionSourceFromID then return true end
+  local list = ns.safe(DM.GetAvailableCombatSessions)
+  if ns.isSecret(list) then return false end
+  if type(list) ~= "table" then return true end
+  local sid = ns.field(list[#list], "sessionID", "number")
+  if not sid then return true end
+  for _, tn in ipairs(METER_TYPES) do
+    local mt = types[tn]
+    if mt ~= nil then
+      for guid, m in pairs(ns.roster) do
+        if guid ~= T.playerGUID then
+          local src = ns.safe(DM.GetCombatSessionSourceFromID, sid, mt, guid)
+          if ns.isSecret(src) then return false end
+          local list2 = ns.field(src, "combatSpells", "table")
+          for i = 1, list2 and math.min(#list2, 200) or 0 do
+            local entry = list2[i]
+            if ns.isSecret(entry) then return false end
+            local id = ns.field(entry, "spellID", "number")
+            local amount = ns.field(entry, "totalAmount", "number") or 0
+            local spell = id and ns.Spells.Find(spells(), id)
+            if spell and spell.class == m.class then
+              -- The same session can span more than one fight: a new use shows as
+              -- a bigger total.
+              local k = sid .. "\0" .. guid .. "\0" .. spell.key
+              local seen = T.meterSeen[k]
+              if not seen or amount > seen then
+                T.meterSeen[k] = amount
+                local cd = ns.Spells.Cooldown(spell)
+                local started = cd > 0 and T.Start(guid, spell.key, now, cd, "meter")
+                ns.Debug(("after combat: meter shows %s used %s (%s)"):format(
+                  tostring(m.name), spell.key, started and "timer started" or "timer already running"))
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  return true
+end
+
+-- One pass. Returns false when something was still secret.
+function T.AfterCombat(now)
+  now = now or ns.Now()
+  for _, unit in ipairs(T.GroupUnits()) do T.ScanAuras(unit) end
+  local ok = T.ScanMeter(now)
+  if ns.debug and #T.hiddenCasts > 0 then
+    for _, h in ipairs(T.hiddenCasts) do
+      local secret = ns.isSecret(h.id)
+      local name = not secret and ns.Spells.NameOf(ns.plain(h.id, "number"))
+        or ns.plain(ns.safe(C_Spell and C_Spell.GetSpellName, h.id), "string")
+      local m = ns.roster[h.guid]
+      ns.Debug(("after combat: hidden cast by %s %.0f s ago: id %s, name %s"):format(
+        tostring(m and m.name or h.guid), now - h.t, secret and "still secret" or tostring(h.id), tostring(name or "unreadable")))
+    end
+  end
+  T.hiddenCasts = {}
+  return ok
+end
+
+function T.OnCombatEnd()
+  local tries = 0
+  local function step()
+    tries = tries + 1
+    if not T.Restricted() and T.AfterCombat() ~= false then return end
+    if tries < T.AFTER_TRIES and C_Timer then C_Timer.After(1, step) end
+  end
+  if C_Timer then C_Timer.After(0.5, step) else step() end
+end
+
+---------------------------------------------------------------------------
 -- Source 4: addon-message sync (see Sync.lua)
 ---------------------------------------------------------------------------
 function T.OnSync(guid, key, remaining)
@@ -433,5 +537,6 @@ end
 function T.Reset()
   ns.roster, ns.cds = {}, {}
   T.unitGUID, T.leftAt, T.recent, T.pendingCast, T.auraLogged = {}, {}, {}, {}, {}
+  T.meterSeen, T.hiddenCasts = {}, {}
   T.playerGUID = nil
 end
